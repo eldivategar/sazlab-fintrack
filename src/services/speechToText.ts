@@ -26,7 +26,7 @@ function getMimeType(fileName: string): string {
   if (lower.endsWith('.webm')) return 'audio/webm';
   if (lower.endsWith('.caf'))  return 'audio/x-caf';
   if (lower.endsWith('.3gp'))  return 'audio/3gpp';
-  // Default fallback: treat as m4a (most common Android expo-av output)
+  // Default fallback: treat as m4a (most common Android expo-audio output)
   return 'audio/mp4';
 }
 
@@ -37,7 +37,7 @@ const GROQ_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
  * Uses FileSystem.uploadAsync on native (Android/iOS) for reliable binary upload,
  * and fetch + Blob on web.
  *
- * @param uri   Local file URI from expo-av recording.
+ * @param uri   Local file URI from expo-audio recording.
  * @param apiKey Groq API Key.
  * @returns Transcribed text.
  */
@@ -111,6 +111,7 @@ export async function transcribeAudio(uri: string, apiKey: string | undefined): 
       formData.append('file', blob, webFileName);
       formData.append('model', 'whisper-large-v3');
       formData.append('language', 'id');
+      formData.append('prompt', 'ketoprak, es teh, paylater, cash, tunai, bon, utang, cicilan, gopay, ovo, dana, shopeepay, gofood, grabfood, gojek, grab, bensin, parkir, indomaret, alfamart');
 
       const response = await fetch(GROQ_URL, {
         method: 'POST',
@@ -138,6 +139,8 @@ export async function transcribeAudio(uri: string, apiKey: string | undefined): 
         parameters: {
           model: 'whisper-large-v3',
           language: 'id',
+          prompt: 'ketoprak, es teh, paylater, cash, tunai, bon, utang, cicilan, gopay, ovo, dana, shopeepay, gofood, grabfood, gojek, grab, bensin, parkir, indomaret, alfamart',
+          temperature: '0',
         },
       });
 
@@ -158,7 +161,14 @@ export async function transcribeAudio(uri: string, apiKey: string | undefined): 
       throw new SpeechApiError('NO_SPEECH_DETECTED');
     }
 
-    return transcript.trim();
+    const cleanText = transcript.trim();
+    // Filter halusinasi umum dari Whisper saat audio kosong/noise
+    const hallucinationRegex = /^(terima kasih(\s*(sudah|telah)\s*menonton)?|thank you(\s*for\s*watching)?|subtitles?\s*by.*|diterjemahkan\s*oleh.*)[.!]*$/i;
+    if (hallucinationRegex.test(cleanText) || cleanText.length < 3) {
+      throw new SpeechApiError('NO_SPEECH_DETECTED');
+    }
+
+    return cleanText;
 
   } catch (error) {
     console.warn('Error in transcribeAudio with Groq:', error);

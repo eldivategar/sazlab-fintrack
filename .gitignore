@@ -1,8 +1,5 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# agent
-.agent
-
 # dependencies
 node_modules/
 
@@ -13,6 +10,7 @@ web-build/
 expo-env.d.ts
 
 # Native
+.idea/
 .kotlin/
 *.orig.*
 *.jks

@@ -154,7 +154,7 @@ export default function DashboardScreen() {
         <AnimatedCard index={0} style={styles.loadingBox}>
           <ActivityIndicator size="large" color="#FF90BB" />
           <Text style={styles.loadingTitle}>Menghubungkan Database</Text>
-          <Text style={styles.loadingSubtitle}>Menyiapkan Spreadsheet 'FinTrack Data' Anda...</Text>
+          <Text style={styles.loadingSubtitle}>Menyiapkan Spreadsheet 'SiPaling Hemat Data' Anda...</Text>
         </AnimatedCard>
       </View>
     );
@@ -336,7 +336,7 @@ export default function DashboardScreen() {
                     labelStyle={{ fontFamily: 'Poppins_600SemiBold', color: '#FFFFFF' }} 
                   />
                 )}
-                <Text style={styles.nameText} numberOfLines={1}>{user?.name || 'User FinTrack'}</Text>
+                <Text style={styles.nameText} numberOfLines={1}>{user?.name || 'User SiPaling Hemat'}</Text>
               </View>
 
               <View style={styles.headerButtons}>
@@ -523,7 +523,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF', // Clean White background
   },
   scrollContent: {
-    paddingBottom: 100, // space to avoid bottom-navigation overlap
+    flexGrow: 1,
+    paddingBottom: 0,
   },
   header: {
     flexDirection: 'row',
@@ -760,7 +761,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 32,
     paddingHorizontal: 24,
     paddingTop: 8,
-    paddingBottom: 32,
+    paddingBottom: 120,
     flex: 1,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: -4 },

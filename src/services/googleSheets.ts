@@ -8,13 +8,13 @@ export class GoogleApiError extends Error {
 }
 
 /**
- * Searches the user's Google Drive for a spreadsheet named 'FinTrack Data'.
+ * Searches the user's Google Drive for a spreadsheet named 'SiPaling Hemat Data'.
  * @param token Google OAuth2 Access Token
  * @returns The spreadsheet ID if found, otherwise null.
  */
 export async function searchSpreadsheet(token: string): Promise<string | null> {
   try {
-    const query = encodeURIComponent("name = 'FinTrack Data' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
+    const query = encodeURIComponent("name = 'SiPaling Hemat Data' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
     const url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)`;
 
     const response = await fetch(url, {
@@ -44,7 +44,7 @@ export async function searchSpreadsheet(token: string): Promise<string | null> {
 }
 
 /**
- * Creates a new spreadsheet named 'FinTrack Data' with a 'Transaksi' sheet.
+ * Creates a new spreadsheet named 'SiPaling Hemat Data' with a 'Transaksi' sheet.
  * @param token Google OAuth2 Access Token
  * @returns The spreadsheet ID of the newly created spreadsheet.
  */
@@ -53,7 +53,7 @@ export async function createSpreadsheet(token: string): Promise<string> {
     const url = 'https://sheets.googleapis.com/v4/spreadsheets';
     const body = {
       properties: {
-        title: 'FinTrack Data',
+        title: 'SiPaling Hemat Data',
       },
       sheets: [
         {
@@ -143,7 +143,7 @@ export async function initializeHeaders(token: string, spreadsheetId: string): P
                 startColumnIndex: 0,
                 endColumnIndex: 7,
               },
-              description: 'Proteksi Metadata & Formula FinTrack (Jangan diubah)',
+              description: 'Proteksi Metadata & Formula SiPaling Hemat (Jangan diubah)',
               warningOnly: true,
             },
           },
@@ -268,8 +268,8 @@ export async function deleteTransactionRow(
             range: {
               sheetId: 0, // guaranteed to be 0 for default Transaksi sheet
               dimension: 'ROWS',
-              startIndex: sheetRowIndex,
-              endIndex: sheetRowIndex + 1,
+              startIndex: sheetRowIndex - 1,
+              endIndex: sheetRowIndex,
             },
           },
         },

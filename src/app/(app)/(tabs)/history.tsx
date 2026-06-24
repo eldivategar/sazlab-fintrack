@@ -33,6 +33,7 @@ import Animated, {
 } from "react-native-reanimated";
 import ScreenTransition from "../../../components/ScreenTransition";
 import AnimatedCard from "../../../components/AnimatedCard";
+import ConfirmModal from "../../../components/ConfirmModal";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -101,21 +102,50 @@ const cleanCategory = (cat: string) => {
 
 const getCategoryEmoji = (cat: string) => {
   const clean = cleanCategory(cat).toLowerCase();
-  if (clean.includes("makan") || clean.includes("minum") || clean.includes("food") || clean.includes("beverage")) return "🍕";
-  if (clean.includes("transport") || clean.includes("mobil") || clean.includes("motor")) return "🚗";
+  if (
+    clean.includes("makan") ||
+    clean.includes("minum") ||
+    clean.includes("food") ||
+    clean.includes("beverage")
+  )
+    return "🍕";
+  if (
+    clean.includes("transport") ||
+    clean.includes("mobil") ||
+    clean.includes("motor")
+  )
+    return "🚗";
   if (clean.includes("shop") || clean.includes("belanja")) return "🛍️";
-  if (clean.includes("bill") || clean.includes("util") || clean.includes("tagihan") || clean.includes("listrik")) return "💡";
-  if (clean.includes("entertain") || clean.includes("hiburan") || clean.includes("bioskop")) return "🎬";
+  if (
+    clean.includes("bill") ||
+    clean.includes("util") ||
+    clean.includes("tagihan") ||
+    clean.includes("listrik")
+  )
+    return "💡";
+  if (
+    clean.includes("entertain") ||
+    clean.includes("hiburan") ||
+    clean.includes("bioskop")
+  )
+    return "🎬";
   if (clean.includes("salary") || clean.includes("gaji")) return "💼";
   if (clean.includes("invest") || clean.includes("saham")) return "📈";
-  if (clean.includes("side") || clean.includes("sampingan") || clean.includes("freelance")) return "🚀";
+  if (
+    clean.includes("side") ||
+    clean.includes("sampingan") ||
+    clean.includes("freelance")
+  )
+    return "🚀";
   if (clean.includes("gift") || clean.includes("hadiah")) return "🎁";
   return "💰";
 };
 
 const toDateStr = (d: Date) => d.toISOString().split("T")[0];
 
-const getDateRangeForFilter = (filter: QuickFilter): { start: string; end: string } | null => {
+const getDateRangeForFilter = (
+  filter: QuickFilter,
+): { start: string; end: string } | null => {
   const now = new Date();
   if (filter === "all") return null;
   if (filter === "today") {
@@ -143,7 +173,11 @@ const formatDateGroupLabel = (dateStr: string) => {
   try {
     const [y, m, d] = dateStr.split("-").map(Number);
     const date = new Date(y, m - 1, d);
-    return date.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long" });
+    return date.toLocaleDateString("id-ID", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    });
   } catch {
     return dateStr;
   }
@@ -156,7 +190,7 @@ function SummaryCard({ transactions }: { transactions: Transaction[] }) {
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
   const monthlyTransactions = transactions.filter((tx) =>
-    tx.tanggal.startsWith(currentMonth)
+    tx.tanggal.startsWith(currentMonth),
   );
 
   const totalExpense = monthlyTransactions
@@ -192,7 +226,9 @@ function SummaryCard({ transactions }: { transactions: Transaction[] }) {
         </View>
         <View style={styles.summarySep} />
         <View style={styles.summaryItem}>
-          <View style={[styles.summaryDot, { backgroundColor: COLORS.accent }]} />
+          <View
+            style={[styles.summaryDot, { backgroundColor: COLORS.accent }]}
+          />
           <View>
             <Text style={styles.summaryAmountLabel}>Pemasukan</Text>
             <Text style={[styles.summaryAmount, { color: COLORS.incomeGreen }]}>
@@ -219,7 +255,12 @@ function SearchBar({
   return (
     <AnimatedCard index={1} style={styles.searchBarWrap}>
       <View style={styles.searchBarInner}>
-        <Ionicons name="search-outline" size={18} color={COLORS.subtext} style={styles.searchIcon} />
+        <Ionicons
+          name="search-outline"
+          size={18}
+          color={COLORS.subtext}
+          style={styles.searchIcon}
+        />
         <RNTextInput
           style={styles.searchInput}
           placeholder="Cari transaksi..."
@@ -306,9 +347,37 @@ function EmptyState({ onAddPress }: { onAddPress: () => void }) {
           </View>
         </View>
         {/* Floating accent dots */}
-        <View style={[styles.floatDot, { top: 4, right: 20, backgroundColor: COLORS.accent }]} />
-        <View style={[styles.floatDot, { bottom: 8, left: 24, backgroundColor: COLORS.secondary, width: 10, height: 10 }]} />
-        <View style={[styles.floatDot, { top: 20, left: 10, backgroundColor: COLORS.primary, width: 6, height: 6, opacity: 0.5 }]} />
+        <View
+          style={[
+            styles.floatDot,
+            { top: 4, right: 20, backgroundColor: COLORS.accent },
+          ]}
+        />
+        <View
+          style={[
+            styles.floatDot,
+            {
+              bottom: 8,
+              left: 24,
+              backgroundColor: COLORS.secondary,
+              width: 10,
+              height: 10,
+            },
+          ]}
+        />
+        <View
+          style={[
+            styles.floatDot,
+            {
+              top: 20,
+              left: 10,
+              backgroundColor: COLORS.primary,
+              width: 6,
+              height: 6,
+              opacity: 0.5,
+            },
+          ]}
+        />
       </View>
 
       <Text style={styles.emptyTitle}>Belum ada transaksi</Text>
@@ -323,7 +392,12 @@ function EmptyState({ onAddPress }: { onAddPress: () => void }) {
           { opacity: pressed ? 0.85 : 1 },
         ]}
       >
-        <Ionicons name="add" size={18} color={COLORS.white} style={{ marginRight: 6 }} />
+        <Ionicons
+          name="add"
+          size={18}
+          color={COLORS.white}
+          style={{ marginRight: 6 }}
+        />
         <Text style={styles.emptyCtaText}>Tambah Transaksi</Text>
       </Pressable>
     </AnimatedCard>
@@ -352,7 +426,7 @@ const WEEKDAYS = ["S", "S", "R", "K", "J", "S", "M"];
 const getDaysInMonth = (year: number, month: number) => {
   const date = new Date(year, month, 1);
   const days = [];
-  
+
   // getDay() is 0 for Sunday, 1 for Monday, etc.
   let firstDayIndex = date.getDay() - 1;
   if (firstDayIndex < 0) firstDayIndex = 6; // Sunday becomes 6 (last day of week)
@@ -409,23 +483,30 @@ interface FilterBottomSheetProps {
   onReset: () => void;
 }
 
-const CATEGORY_CHIPS = ["Semua", "Makanan", "Transportasi", "Belanja", "Hiburan", "Tagihan"];
+const CATEGORY_CHIPS = [
+  "Semua",
+  "Makanan",
+  "Transportasi",
+  "Belanja",
+  "Hiburan",
+  "Tagihan",
+];
 const PAYMENT_CHIPS = ["Semua", "Tunai", "Transfer", "Paylater", "E-Wallet"];
 
 const CATEGORY_MAP: { [key: string]: string } = {
-  "Semua": "Semua",
-  "Makanan": "Makanan & Minuman",
-  "Transportasi": "Transportasi",
-  "Belanja": "Belanja",
-  "Hiburan": "Hiburan",
-  "Tagihan": "Tagihan & Utilitas",
+  Semua: "Semua",
+  Makanan: "Makanan & Minuman",
+  Transportasi: "Transportasi",
+  Belanja: "Belanja",
+  Hiburan: "Hiburan",
+  Tagihan: "Tagihan & Utilitas",
 };
 
 const PAYMENT_MAP: { [key: string]: string } = {
-  "Semua": "All",
-  "Tunai": "Cash",
-  "Transfer": "Transfer",
-  "Paylater": "Paylater",
+  Semua: "All",
+  Tunai: "Cash",
+  Transfer: "Transfer",
+  Paylater: "Paylater",
   "E-Wallet": "E-Wallet",
 };
 
@@ -434,9 +515,25 @@ function DateButton({ label, value, onPress, onClear }: any) {
     <View style={styles.datePickerBtnWrap}>
       <Text style={styles.datePickerBtnLabel}>{label}</Text>
       <Pressable onPress={onPress} style={styles.datePickerBtn}>
-        <Ionicons name="calendar-outline" size={16} color={COLORS.subtext} style={{ marginRight: 6 }} />
-        <Text style={[styles.datePickerBtnText, value ? styles.datePickerBtnTextSelected : styles.datePickerBtnTextPlaceholder]}>
-          {value ? formatDateFriendly(value) : label === "Mulai" ? "Pilih tanggal mulai" : "Pilih tanggal selesai"}
+        <Ionicons
+          name="calendar-outline"
+          size={16}
+          color={COLORS.subtext}
+          style={{ marginRight: 6 }}
+        />
+        <Text
+          style={[
+            styles.datePickerBtnText,
+            value
+              ? styles.datePickerBtnTextSelected
+              : styles.datePickerBtnTextPlaceholder,
+          ]}
+        >
+          {value
+            ? formatDateFriendly(value)
+            : label === "Mulai"
+              ? "Pilih tanggal mulai"
+              : "Pilih tanggal selesai"}
         </Text>
         {value ? (
           <Pressable onPress={onClear} style={styles.datePickerBtnClear}>
@@ -493,7 +590,9 @@ function FilterBottomSheet({
   }, [visible]);
 
   // Calendar Modal targets
-  const [calendarTarget, setCalendarTarget] = useState<"start" | "end" | null>(null);
+  const [calendarTarget, setCalendarTarget] = useState<"start" | "end" | null>(
+    null,
+  );
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
   const [calYear, setCalYear] = useState(new Date().getFullYear());
 
@@ -545,8 +644,8 @@ function FilterBottomSheet({
     opacity: animatedValue.value,
   }));
 
+  const screenHeight = Dimensions.get("window").height;
   const sheetAnimatedStyle = useAnimatedStyle(() => {
-    const screenHeight = Dimensions.get("window").height;
     return {
       transform: [{ translateY: (1 - animatedValue.value) * screenHeight }],
     };
@@ -565,7 +664,7 @@ function FilterBottomSheet({
         {/* Sheet */}
         <Animated.View style={[styles.sheetContainer, sheetAnimatedStyle]}>
           <View style={styles.sheetIndicator} />
-          
+
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>Filter Transaksi</Text>
             <Pressable onPress={onDismiss} style={styles.closeBtn}>
@@ -628,13 +727,17 @@ function FilterBottomSheet({
                     onPress={() => setTempCategory(mappedCat)}
                     style={[
                       styles.sheetChip,
-                      isActive ? styles.sheetChipActive : styles.sheetChipInactive,
+                      isActive
+                        ? styles.sheetChipActive
+                        : styles.sheetChipInactive,
                     ]}
                   >
                     <Text
                       style={[
                         styles.sheetChipText,
-                        isActive ? styles.sheetChipTextActive : styles.sheetChipTextInactive,
+                        isActive
+                          ? styles.sheetChipTextActive
+                          : styles.sheetChipTextInactive,
                       ]}
                     >
                       {chip}
@@ -663,13 +766,17 @@ function FilterBottomSheet({
                     onPress={() => setTempPayment(mappedPay)}
                     style={[
                       styles.sheetChip,
-                      isActive ? styles.sheetChipActive : styles.sheetChipInactive,
+                      isActive
+                        ? styles.sheetChipActive
+                        : styles.sheetChipInactive,
                     ]}
                   >
                     <Text
                       style={[
                         styles.sheetChipText,
-                        isActive ? styles.sheetChipTextActive : styles.sheetChipTextInactive,
+                        isActive
+                          ? styles.sheetChipTextActive
+                          : styles.sheetChipTextInactive,
                       ]}
                     >
                       {chip}
@@ -695,17 +802,28 @@ function FilterBottomSheet({
         {calendarTarget !== null ? (
           <Portal>
             <View style={styles.calModalOverlay}>
-              <Pressable style={styles.calModalBackdrop} onPress={() => setCalendarTarget(null)} />
+              <Pressable
+                style={styles.calModalBackdrop}
+                onPress={() => setCalendarTarget(null)}
+              />
               <View style={styles.calModalContent}>
                 <View style={styles.calHeader}>
                   <Pressable onPress={prevMonth} style={styles.calNavBtn}>
-                    <Ionicons name="chevron-back" size={18} color={COLORS.primary} />
+                    <Ionicons
+                      name="chevron-back"
+                      size={18}
+                      color={COLORS.primary}
+                    />
                   </Pressable>
                   <Text style={styles.calMonthText}>
                     {MONTH_NAMES[calMonth]} {calYear}
                   </Text>
                   <Pressable onPress={nextMonth} style={styles.calNavBtn}>
-                    <Ionicons name="chevron-forward" size={18} color={COLORS.primary} />
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color={COLORS.primary}
+                    />
                   </Pressable>
                 </View>
 
@@ -720,10 +838,15 @@ function FilterBottomSheet({
                 <View style={styles.calGrid}>
                   {getDaysInMonth(calYear, calMonth).map((day, idx) => {
                     if (day === null) {
-                      return <View key={`empty-${idx}`} style={styles.calDayEmpty} />;
+                      return (
+                        <View key={`empty-${idx}`} style={styles.calDayEmpty} />
+                      );
                     }
                     const dayStr = formatDateToYMD(day);
-                    const isSelected = calendarTarget === "start" ? tempStartDate === dayStr : tempEndDate === dayStr;
+                    const isSelected =
+                      calendarTarget === "start"
+                        ? tempStartDate === dayStr
+                        : tempEndDate === dayStr;
                     return (
                       <Pressable
                         key={dayStr}
@@ -759,7 +882,12 @@ function FilterBottomSheet({
 export default function HistoryScreen() {
   const router = useRouter();
   const { token } = useAuthStore();
-  const { transactions, isLoadingTransactions, fetchTransactions, deleteTransaction } = useSheetStore();
+  const {
+    transactions,
+    isLoadingTransactions,
+    fetchTransactions,
+    deleteTransaction,
+  } = useSheetStore();
   const segments = useSegments() as any;
   const isFocused = segments.includes("history");
 
@@ -772,32 +900,35 @@ export default function HistoryScreen() {
   const [showAdvFilter, setShowAdvFilter] = useState(false);
   const [pageLimit, setPageLimit] = useState(15);
 
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<Transaction | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const handleRefresh = async () => {
     if (token) await fetchTransactions(token);
   };
 
   const confirmDelete = (item: Transaction) => {
-    Alert.alert(
-      "Hapus Transaksi",
-      `Apakah Anda yakin ingin menghapus "${item.keterangan}"?`,
-      [
-        { text: "Batal", style: "cancel" },
-        {
-          text: "Hapus",
-          style: "destructive",
-          onPress: async () => {
-            if (token) {
-              try {
-                await deleteTransaction(token, item.rowIndex);
-                Alert.alert("Sukses", "Transaksi berhasil dihapus.");
-              } catch {
-                Alert.alert("Error", "Gagal menghapus transaksi.");
-              }
-            }
-          },
-        },
-      ]
-    );
+    setItemToDelete(item);
+    setDeleteModalVisible(true);
+  };
+
+  const executeDelete = async () => {
+    if (!itemToDelete || !token) return;
+    setIsDeleting(true);
+    try {
+      await deleteTransaction(token, itemToDelete.rowIndex);
+      setDeleteModalVisible(false);
+      setItemToDelete(null);
+      // Tunggu modal tertutup lalu refresh data
+      setTimeout(() => {
+        fetchTransactions(token);
+      }, 300);
+    } catch {
+      Alert.alert("Error", "Gagal menghapus transaksi.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // Apply all filters
@@ -809,21 +940,41 @@ export default function HistoryScreen() {
     return transactions.filter((tx) => {
       if (search.trim()) {
         const q = search.toLowerCase();
-        if (!tx.keterangan.toLowerCase().includes(q) && !tx.catatan.toLowerCase().includes(q)) return false;
+        if (
+          !tx.keterangan.toLowerCase().includes(q) &&
+          !tx.catatan.toLowerCase().includes(q)
+        )
+          return false;
       }
       if (selectedCategory !== "Semua") {
-        if (cleanCategory(tx.kategori).toLowerCase() !== selectedCategory.toLowerCase()) return false;
+        if (
+          cleanCategory(tx.kategori).toLowerCase() !==
+          selectedCategory.toLowerCase()
+        )
+          return false;
       }
       if (selectedPayment !== "All") {
-        if (tx.pembayaran.toLowerCase() !== selectedPayment.toLowerCase()) return false;
+        if (tx.pembayaran.toLowerCase() !== selectedPayment.toLowerCase())
+          return false;
       }
       if (activeStart && tx.tanggal < activeStart) return false;
       if (activeEnd && tx.tanggal > activeEnd) return false;
       return true;
     });
-  }, [transactions, search, quickFilter, selectedCategory, selectedPayment, startDate, endDate]);
+  }, [
+    transactions,
+    search,
+    quickFilter,
+    selectedCategory,
+    selectedPayment,
+    startDate,
+    endDate,
+  ]);
 
-  const paginatedTransactions = useMemo(() => filteredTransactions.slice(0, pageLimit), [filteredTransactions, pageLimit]);
+  const paginatedTransactions = useMemo(
+    () => filteredTransactions.slice(0, pageLimit),
+    [filteredTransactions, pageLimit],
+  );
 
   // Group by date
   type GroupedSection = { dateStr: string; data: Transaction[] };
@@ -835,24 +986,41 @@ export default function HistoryScreen() {
       map.get(d)!.push(tx);
     }
     // Sort descending by date
-    const sorted = Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-    return sorted.map(([dateStr, data]) => ({ dateStr, data })) as GroupedSection[];
+    const sorted = Array.from(map.entries()).sort((a, b) =>
+      b[0].localeCompare(a[0]),
+    );
+    return sorted.map(([dateStr, data]) => ({
+      dateStr,
+      data,
+    })) as GroupedSection[];
   }, [paginatedTransactions]);
 
   const loadMore = () => {
     if (pageLimit < filteredTransactions.length) setPageLimit((p) => p + 15);
   };
 
-  const isFilterActive = startDate !== "" || endDate !== "" || selectedCategory !== "Semua" || selectedPayment !== "All";
+  const isFilterActive =
+    startDate !== "" ||
+    endDate !== "" ||
+    selectedCategory !== "Semua" ||
+    selectedPayment !== "All";
   const trigKey = String(isFocused);
 
   // ── Swipeable row ──
   const renderRightActions = (item: Transaction, swRef: any) => (
     <Pressable
-      onPress={() => { swRef?.close(); confirmDelete(item); }}
+      onPress={() => {
+        swRef?.close();
+        confirmDelete(item);
+      }}
       style={styles.deleteAction}
     >
-      <Ionicons name="trash-outline" size={20} color="#FFFFFF" style={{ marginBottom: 2 }} />
+      <Ionicons
+        name="trash-outline"
+        size={20}
+        color="#FFFFFF"
+        style={{ marginBottom: 2 }}
+      />
       <Text style={styles.deleteActionText}>Hapus</Text>
     </Pressable>
   );
@@ -863,7 +1031,9 @@ export default function HistoryScreen() {
     return (
       <Swipeable
         key={item.id}
-        ref={(r) => { swRef = r; }}
+        ref={(r) => {
+          swRef = r;
+        }}
         renderRightActions={() => renderRightActions(item, swRef)}
         friction={2}
         rightThreshold={40}
@@ -871,23 +1041,59 @@ export default function HistoryScreen() {
         <AnimatedCard index={idx} stepMs={40} triggerKey={trigKey}>
           <View style={styles.transactionCard}>
             <View style={styles.cardLeft}>
-              <View style={[styles.iconContainer, { backgroundColor: isIncome ? "#E6F4F8" : "#FFEBEF" }]}>
-                <Text style={styles.categoryIcon}>{getCategoryEmoji(item.kategori)}</Text>
+              <View
+                style={[
+                  styles.iconContainer,
+                  { backgroundColor: isIncome ? "#E6F4F8" : "#FFEBEF" },
+                ]}
+              >
+                <Text style={styles.categoryIcon}>
+                  {getCategoryEmoji(item.kategori)}
+                </Text>
               </View>
               <View style={styles.textDetails}>
-                <Text style={styles.itemTitle} numberOfLines={1}>{item.keterangan}</Text>
+                <Text style={styles.itemTitle} numberOfLines={1}>
+                  {item.keterangan}
+                </Text>
                 <View style={styles.rowTags}>
-                  <Text style={styles.itemCategory}>{cleanCategory(item.kategori)}</Text>
+                  <Text style={styles.itemCategory}>
+                    {cleanCategory(item.kategori)}
+                  </Text>
                   <Text style={styles.dot}>•</Text>
-                  <View style={[styles.payMethodTag, { backgroundColor: item.pembayaran === "Paylater" ? "#FFE4E6" : "#F1F5F9" }]}>
-                    <Text style={[styles.payMethodText, { color: item.pembayaran === "Paylater" ? "#E11D48" : "#64748B" }]}>
+                  <View
+                    style={[
+                      styles.payMethodTag,
+                      {
+                        backgroundColor:
+                          item.pembayaran === "Paylater"
+                            ? "#FFE4E6"
+                            : "#F1F5F9",
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.payMethodText,
+                        {
+                          color:
+                            item.pembayaran === "Paylater"
+                              ? "#E11D48"
+                              : "#64748B",
+                        },
+                      ]}
+                    >
                       {item.pembayaran === "Cash" ? "Tunai" : item.pembayaran}
                     </Text>
                   </View>
                 </View>
               </View>
             </View>
-            <Text style={[styles.itemAmount, { color: isIncome ? COLORS.incomeGreen : COLORS.expenseRed }]}>
+            <Text
+              style={[
+                styles.itemAmount,
+                { color: isIncome ? COLORS.incomeGreen : COLORS.expenseRed },
+              ]}
+            >
               {`${isIncome ? "+" : "-"}${formatRupiah(item.nominal)}`}
             </Text>
           </View>
@@ -914,7 +1120,11 @@ export default function HistoryScreen() {
                 </Text>
               </View>
               <Pressable onPress={handleRefresh} style={styles.refreshBtn}>
-                <Ionicons name="refresh-outline" size={20} color={COLORS.white} />
+                <Ionicons
+                  name="refresh-outline"
+                  size={20}
+                  color={COLORS.white}
+                />
               </Pressable>
             </View>
           </AnimatedCard>
@@ -936,7 +1146,10 @@ export default function HistoryScreen() {
                 {/* Search Bar */}
                 <SearchBar
                   search={search}
-                  setSearch={(v) => { setSearch(v); setPageLimit(15); }}
+                  setSearch={(v) => {
+                    setSearch(v);
+                    setPageLimit(15);
+                  }}
                   onFilterPress={() => setShowAdvFilter((p) => !p)}
                   filterActive={isFilterActive}
                 />
@@ -944,7 +1157,10 @@ export default function HistoryScreen() {
                 {/* Quick Filter Chips */}
                 <QuickFilterChips
                   active={quickFilter}
-                  onSelect={(id) => { setQuickFilter(id); setPageLimit(15); }}
+                  onSelect={(id) => {
+                    setQuickFilter(id);
+                    setPageLimit(15);
+                  }}
                 />
               </View>
             }
@@ -954,8 +1170,15 @@ export default function HistoryScreen() {
                 <View style={styles.groupHeader}>
                   <View style={styles.groupDividerLine} />
                   <View style={styles.groupLabelWrap}>
-                    <Ionicons name="time-outline" size={13} color={COLORS.accent} style={{ marginRight: 4 }} />
-                    <Text style={styles.groupLabel}>{formatDateGroupLabel(section.dateStr)}</Text>
+                    <Ionicons
+                      name="time-outline"
+                      size={13}
+                      color={COLORS.accent}
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text style={styles.groupLabel}>
+                      {formatDateGroupLabel(section.dateStr)}
+                    </Text>
                   </View>
                   <View style={styles.groupDividerLine} />
                 </View>
@@ -970,7 +1193,11 @@ export default function HistoryScreen() {
                   <Text style={styles.loadingText}>Memuat transaksi...</Text>
                 </View>
               ) : (
-                <EmptyState onAddPress={() => router.push("/(app)/add-transaction" as any)} />
+                <EmptyState
+                  onAddPress={() =>
+                    router.push("/(app)/add-transaction" as any)
+                  }
+                />
               )
             }
             ListFooterComponent={
@@ -1010,6 +1237,18 @@ export default function HistoryScreen() {
               setPageLimit(15);
               setShowAdvFilter(false);
             }}
+          />
+
+          <ConfirmModal
+            visible={deleteModalVisible}
+            title="Hapus Transaksi"
+            message={`Apakah Anda yakin ingin menghapus transaksi "${itemToDelete?.keterangan || ""}"? Tindakan ini tidak dapat dibatalkan.`}
+            onConfirm={executeDelete}
+            onCancel={() => setDeleteModalVisible(false)}
+            isLoading={isDeleting}
+            confirmText="Hapus"
+            cancelText="Batal"
+            isDestructive={true}
           />
         </SafeAreaView>
       </ScreenTransition>

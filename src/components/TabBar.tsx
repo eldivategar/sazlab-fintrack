@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, StyleSheet, Pressable, LayoutChangeEvent, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, Pressable, LayoutChangeEvent, useWindowDimensions, Platform } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -89,6 +89,7 @@ function TabButton({ config, route, isFocused, navigation, onLayout }: TabButton
               fontFamily: isFocused ? 'Poppins_600SemiBold' : 'Poppins_400Regular',
               fontSize: width < 375 ? 8.5 : 10,
               paddingHorizontal: width < 375 ? 2 : 4,
+              includeFontPadding: false,
             },
           ]}
         >
@@ -179,9 +180,10 @@ export default function TabBar({ state, descriptors, navigation }: any) {
       style={[
         styles.outerContainer,
         {
-          paddingBottom: insets.bottom > 0 ? insets.bottom : 12,
+          bottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 16) : Math.max(insets.bottom + 8, 20),
           left: width < 375 ? 10 : 16,
           right: width < 375 ? 10 : 16,
+          height: 72,
         },
       ]}
     >
@@ -202,7 +204,7 @@ export default function TabBar({ state, descriptors, navigation }: any) {
         {renderTabButton(0)}
         {renderTabButton(1)}
         {/* Spacer for the floating mic */}
-        <View style={[styles.spacer, { width: width < 375 ? 48 : 64 }]} />
+        <View style={[styles.spacer, { width: 60 }]} />
         {renderTabButton(2)}
         {renderTabButton(3)}
       </View>

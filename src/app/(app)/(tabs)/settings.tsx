@@ -148,7 +148,7 @@ export default function SettingsScreen() {
                 ]}
               >
                 <Text style={styles.userName}>
-                  {user?.name || "User FinTrack"}
+                  {user?.name || "User SiPaling Hemat"}
                 </Text>
                 <Text style={styles.userEmail}>
                   {user?.email || "user@example.com"}
@@ -265,7 +265,7 @@ export default function SettingsScreen() {
               >
                 <View style={styles.databaseInfo}>
                   <Text style={styles.infoLabel}>Nama Spreadsheet</Text>
-                  <Text style={styles.infoValue}>FinTrack Data</Text>
+                  <Text style={styles.infoValue}>SiPaling Hemat Data</Text>
                 </View>
                 {spreadsheetId ? (
                   <Pressable
@@ -370,7 +370,7 @@ export default function SettingsScreen() {
               />
               <Text style={styles.signOutButtonText}>Keluar</Text>
             </Pressable>
-            <Text style={styles.appVersion}>FinTrack v1.0.0</Text>
+            <Text style={styles.appVersion}>SiPaling Hemat v1.0.0</Text>
             <Text style={styles.thankYouText}>Made with ❤️ by Sazlab</Text>
           </AnimatedCard>
         </ScrollView>

@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import * as SecureStore from '../utils/secureStore';
-import * as Notifications from 'expo-notifications';
+
+let Notifications: any = null;
+try {
+  Notifications = require('expo-notifications');
+} catch (e: any) {
+  console.warn('expo-notifications could not be loaded in settings store:', e.message);
+}
 
 const SETTINGS_KEY = 'fintrack_notification_settings';
 
@@ -35,7 +41,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       await SecureStore.setItemAsync(SETTINGS_KEY, JSON.stringify({ enabled, hour, minute }));
 
       // Handle Expo Notification scheduling
-      if (enabled) {
+      if (enabled && Notifications) {
         // Request Permissions
         const { status } = await Notifications.requestPermissionsAsync();
         if (status === 'granted') {
@@ -45,7 +51,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
           // Schedule new daily reminder
           await Notifications.scheduleNotificationAsync({
             content: {
-              title: 'Pengingat Harian FinTrack 💰',
+              title: '💰 Pengingat Harian',
               body: 'Apakah Anda sudah mencatat transaksi hari ini? Mari jaga keuangan Anda tetap rapi!',
               sound: true,
             },
@@ -61,9 +67,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
           // Reset toggle
           set({ reminderEnabled: false });
         }
-      } else {
+      } else if (!enabled && Notifications) {
         await Notifications.cancelAllScheduledNotificationsAsync();
         console.log('All scheduled notifications cancelled.');
+      } else {
+        console.warn('Notification scheduling skipped: expo-notifications is not available in this environment.');
       }
     } catch (error) {
       console.error('Failed to update notification settings:', error);

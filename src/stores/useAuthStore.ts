@@ -59,10 +59,11 @@ export const useAuthStore = create<AuthState>((set) => ({
           
           if (response.ok) {
             const userData = await response.json();
+            const parsedStoredUser = storedUserStr ? JSON.parse(storedUserStr) : null;
             const user: User = {
-              name: userData.name || '',
-              email: userData.email || '',
-              picture: userData.picture || '',
+              name: userData.name || parsedStoredUser?.name || '',
+              email: userData.email || parsedStoredUser?.email || '',
+              picture: userData.picture || parsedStoredUser?.picture || '',
             };
             await SecureStore.setItemAsync(USER_INFO_KEY, JSON.stringify(user));
             set({ token: storedToken, user, isAuthenticated: true, isLoading: false });

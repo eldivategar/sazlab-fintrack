@@ -22,6 +22,19 @@ import GoogleLogo from "../../components/GoogleLogo";
 // Complete the authentication session if redirecting back to the app
 WebBrowser.maybeCompleteAuthSession();
 
+// Safely require GoogleSignin for native platforms only
+let GoogleSignin: any = null;
+if (Platform.OS !== "web") {
+  try {
+    GoogleSignin =
+      require("@react-native-google-signin/google-signin").GoogleSignin;
+  } catch (error) {
+    console.log(
+      "[SiPaling Hemat] Native Google Sign-In module not found. Falling back to AuthSession. This is expected in Expo Go or if native binaries have not been rebuilt yet.",
+    );
+  }
+}
+
 const discovery = {
   authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
   tokenEndpoint: "https://oauth2.googleapis.com/token",
@@ -66,29 +79,50 @@ export default function LoginScreen() {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Hardcoded logo size
-  const logoWidth = 200;
-  const logoHeight = 60;
-
   // makeRedirectUri generates different URIs per platform
   const redirectUri = AuthSession.makeRedirectUri(
     Platform.OS === "web"
       ? {}
       : {
-          scheme: "fintrack",
-          path: "oauth2redirect",
-          native: "fintrack://oauth2redirect",
+          scheme: "sipaling-hemat",
+          preferLocalhost: true,
+          native: "sipaling-hemat://oauth2redirect",
         },
   );
 
+  // If native SDK fails to load (e.g. running in Expo Go or native module not linked),
+  // we fallback to the web client ID for the AuthSession browser flow.
   const clientId =
-    process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB ||
-    process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID ||
-    "";
+    Platform.select({
+      web: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB,
+      android: GoogleSignin
+        ? process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID
+        : process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB,
+      ios: GoogleSignin
+        ? process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS
+        : process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB,
+      default: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB,
+    }) || "";
+
+  // Configure Google SDK for native platforms if available
+  useEffect(() => {
+    if (Platform.OS !== "web" && GoogleSignin) {
+      GoogleSignin.configure({
+        webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB,
+        scopes: [
+          "https://www.googleapis.com/auth/spreadsheets",
+          "https://www.googleapis.com/auth/drive.file",
+        ],
+      });
+    }
+  }, []);
 
   useEffect(() => {
-    console.log("[FinTrack] OAuth Redirect URI:", redirectUri);
+    console.log("[SiPaling Hemat] OAuth Redirect URI:", redirectUri);
   }, [redirectUri]);
+
+  // Fallback to AuthSession if on Web or if native SDK is not loaded (e.g. Expo Go)
+  const useAuthSessionFallback = Platform.OS === "web" || !GoogleSignin;
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
@@ -104,8 +138,10 @@ export default function LoginScreen() {
       redirectUri,
       usePKCE: false,
     },
-    clientId ? discovery : null,
+    useAuthSessionFallback && clientId ? discovery : null,
   );
+
+  const isButtonDisabled = useAuthSessionFallback ? !request : false;
 
   useEffect(() => {
     if (response) {
@@ -160,14 +196,49 @@ export default function LoginScreen() {
       setErrorMsg(null);
       setIsAuthenticating(true);
 
-      const result = await promptAsync();
+      if (useAuthSessionFallback) {
+        const result = await promptAsync();
+        if (result.type !== "success") {
+          setIsAuthenticating(false);
+        }
+      } else {
+        if (!GoogleSignin) {
+          throw new Error("SDK Sign-In Native tidak termuat.");
+        }
+        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+        const signInResponse = await GoogleSignin.signIn();
 
-      if (result.type !== "success") {
-        setIsAuthenticating(false);
+        if (signInResponse?.type === "cancelled") {
+          setErrorMsg("Login dibatalkan oleh pengguna.");
+          setIsAuthenticating(false);
+          return;
+        }
+
+        const googleUser = signInResponse?.data?.user ?? (signInResponse as any)?.user;
+        const tokens = await GoogleSignin.getTokens();
+        const token = tokens.accessToken;
+
+        if (token && googleUser) {
+          const user = {
+            name: googleUser.name || "",
+            email: googleUser.email || "",
+            picture: googleUser.photo || "",
+          };
+          await login(token, user);
+        } else {
+          setErrorMsg("Gagal mendapatkan data login dari Google.");
+          setIsAuthenticating(false);
+        }
       }
-    } catch (err) {
-      console.error("OAuth initiation error:", err);
-      setErrorMsg("Tidak dapat menginisialisasi Login Google.");
+    } catch (err: any) {
+      console.error("Google login error:", err);
+      if (err.code === "ASYNC_OP_IN_PROGRESS") {
+        setErrorMsg("Proses login sedang berjalan.");
+      } else if (err.code === "PLAY_SERVICES_NOT_AVAILABLE") {
+        setErrorMsg("Google Play Services tidak tersedia.");
+      } else {
+        setErrorMsg("Tidak dapat masuk dengan Google. Silakan coba lagi.");
+      }
       setIsAuthenticating(false);
     }
   };
@@ -206,7 +277,7 @@ export default function LoginScreen() {
             style={styles.logoContainer}
           >
             <Image
-              source={require("../../../assets/images/fintrack-logo.png")}
+              source={require("../../../assets/images/sipaling-hemat-logo.png")}
               style={styles.logoImage}
               resizeMode="contain"
             />
@@ -315,11 +386,11 @@ export default function LoginScreen() {
             ) : (
               <Pressable
                 onPress={handleGoogleLogin}
-                disabled={!request}
+                disabled={isButtonDisabled}
                 style={({ pressed }) => [
                   styles.googleButton,
                   pressed && { backgroundColor: "#F8FAFC" },
-                  !request && { opacity: 0.6 },
+                  isButtonDisabled && { opacity: 0.6 },
                 ]}
               >
                 <GoogleLogo size={18} style={{ marginRight: 12 }} />
@@ -341,7 +412,7 @@ export default function LoginScreen() {
           </MotiView>
 
           {/* Bottom App Version */}
-          <Text style={styles.appVersion}>FinTrack v1.0.0</Text>
+          <Text style={styles.appVersion}>SiPaling Hemat v1.0.0</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -400,11 +471,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 50,
-    marginBottom: -60,
+    marginTop: 30,
+    marginBottom: -10,
   },
   logoImage: {
-    width: 700,
+    width: 250,
     height: 250,
   },
   textContainer: {

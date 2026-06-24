@@ -12,23 +12,30 @@ import { PaperProvider, MD3LightTheme } from 'react-native-paper';
 import { useAuthStore } from '../stores/useAuthStore';
 import { View, ActivityIndicator } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import * as Notifications from 'expo-notifications';
 import { useUIStore } from '../stores/useUIStore';
 import VoiceInputSheet from '../components/VoiceInputSheet';
+let Notifications: any = null;
+try {
+  Notifications = require('expo-notifications');
+} catch (e: any) {
+  console.warn('expo-notifications could not be loaded:', e.message);
+}
 
 // Configure Notifications to show alerts in foreground
-try {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-  });
-} catch (e) {
-  console.warn('expo-notifications not available on this platform/build:', e);
+if (Notifications) {
+  try {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+  } catch (e) {
+    console.warn('expo-notifications not available on this platform/build:', e);
+  }
 }
 
 // Keep splash screen visible while loading resources

@@ -9,8 +9,10 @@ import {
   ScrollView,
 } from "react-native";
 import { Portal, Modal, Text, Button, TextInput } from "react-native-paper";
-import { Audio } from "expo-av";
+
 import { MotiView, MotiText } from "moti";
+
+import { useAudioRecorder, AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorderState } from "expo-audio";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -26,7 +28,18 @@ import {
   parseTransactionWithSumopod,
   SumopodAiError,
   ParsedTransaction,
+  ParsedTransactionResponse,
 } from "../services/aiParser";
+
+export interface EditableTransaction {
+  id: string;
+  item: string;
+  nominal: string;
+  type: "Pengeluaran" | "Pemasukan";
+  kategori: string;
+  pembayaran: "Cash" | "Paylater";
+  catatan: string;
+}
 
 interface VoiceInputSheetProps {
   visible: boolean;
@@ -97,7 +110,7 @@ const getUserMediaWithTimeout = (
   timeoutMs: number,
 ): Promise<MediaStream> => {
   return new Promise<MediaStream>((resolve, reject) => {
-    let timer = setTimeout(() => {
+    let timer: any = window.setTimeout(() => {
       timer = 0;
       reject(new Error("TIMEOUT"));
     }, timeoutMs);
@@ -134,34 +147,24 @@ export default function VoiceInputSheet({
     "idle" | "recording" | "transcribing" | "parsing" | "preview" | "error"
   >("idle");
   const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [recordDuration, setRecordDuration] = useState(0);
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const audioRecorderState = useAudioRecorderState(audioRecorder, 100);
+    const [recordDuration, setRecordDuration] = useState(0);
   const [waveform, setWaveform] = useState<number[]>([
     0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
   ]);
 
   const [transcription, setTranscription] = useState("");
-  const [parsedData, setParsedData] = useState<ParsedTransaction | null>(null);
+  const [parsedTransactions, setParsedTransactions] = useState<EditableTransaction[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Demo Mode Flags (activated if API keys are missing)
   const [isDemoMode, setIsDemoMode] = useState(false);
 
-  // Fields for Editable Preview Card
-  const [editItem, setEditItem] = useState("");
-  const [editNominal, setEditNominal] = useState("");
-  const [editType, setEditType] = useState<"Pengeluaran" | "Pemasukan">(
-    "Pengeluaran",
-  );
-  const [editCategory, setEditCategory] = useState("");
-  const [editPembayaran, setEditPembayaran] = useState<"Cash" | "Paylater">(
-    "Cash",
-  );
-  const [editCatatan, setEditCatatan] = useState("");
+  // Editable array managed in parsedTransactions state
 
   const timerRef = useRef<any>(null);
-  const recordingRef = useRef<Audio.Recording | null>(null);
-  // useRef<any> untuk MediaRecorder agar tidak error TypeScript di environment React Native
+    // useRef<any> untuk MediaRecorder agar tidak error TypeScript di environment React Native
   const mediaRecorderRef = useRef<any>(null);
   const audioChunksRef = useRef<any[]>([]);
   const prevVisibleRef = useRef(false);
@@ -201,9 +204,8 @@ export default function VoiceInputSheet({
 
   // ─── Reset semua state ke kondisi awal ───────────────────────────────────────
   const resetAll = () => {
-    if (recordingRef.current) {
-      recordingRef.current.stopAndUnloadAsync().catch(() => {});
-      recordingRef.current = null;
+    if (audioRecorder.isRecording) {
+      try { audioRecorder.stop(); } catch (e) {}
     }
     if (
       mediaRecorderRef.current &&
@@ -216,19 +218,29 @@ export default function VoiceInputSheet({
     if (timerRef.current) clearInterval(timerRef.current);
     setStatus("idle");
     setIsRecording(false);
-    setRecording(null);
     setRecordDuration(0);
     setWaveform([
       0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
     ]);
     setTranscription("");
-    setParsedData(null);
+    setParsedTransactions([]);
     setErrorMsg(null);
     setIsDemoMode(false);
     isDemoModeRef.current = false;
   };
 
   // ─── Effects ─────────────────────────────────────────────────────────────────
+
+  // Waveform via expo-audio metering
+  useEffect(() => {
+    if (status === "recording" && audioRecorderState?.metering !== undefined) {
+      const normalized = Math.max(
+        0.1,
+        Math.min(1.0, (audioRecorderState.metering + 160) / 160),
+      );
+      updateWaveform(normalized);
+    }
+  }, [audioRecorderState?.metering, status]);
 
   // Animasi orb saat status recording berubah
   useEffect(() => {
@@ -261,10 +273,6 @@ export default function VoiceInputSheet({
   // Cleanup saat unmount
   useEffect(() => {
     return () => {
-      if (recordingRef.current) {
-        recordingRef.current.stopAndUnloadAsync().catch(() => {});
-        recordingRef.current = null;
-      }
       if (
         mediaRecorderRef.current &&
         mediaRecorderRef.current.state !== "inactive"
@@ -279,7 +287,7 @@ export default function VoiceInputSheet({
   useEffect(() => {
     if (visible && !prevVisibleRef.current) {
       if (Platform.OS !== "web") {
-        Audio.requestPermissionsAsync().catch((err) => {
+        AudioModule.requestRecordingPermissionsAsync().catch((err: any) => {
           console.warn("Audio permissions request error:", err);
         });
       }
@@ -379,87 +387,35 @@ export default function VoiceInputSheet({
     }
   };
 
-  // ─── NATIVE: rekam pakai expo-av (iOS & Android) ─────────────────────────────
+  // ─── NATIVE: rekam pakai expo-audio (iOS & Android) ─────────────────────────────
   const startRecordingNative = async () => {
     console.log("[VoiceInputSheet] startRecordingNative dipanggil");
     try {
-      console.log("[VoiceInputSheet] Native: Memeriksa izin mikrofon...");
-      const permission = await Audio.getPermissionsAsync();
-      console.log(
-        "[VoiceInputSheet] Native: Hasil getPermissionsAsync:",
-        permission,
-      );
-      if (permission.status !== "granted") {
-        console.log("[VoiceInputSheet] Native: Meminta izin mikrofon...");
-        const ask = await Audio.requestPermissionsAsync();
-        console.log(
-          "[VoiceInputSheet] Native: Hasil requestPermissionsAsync:",
-          ask,
-        );
-        if (ask.status !== "granted") {
-          setStatus("error");
-          setErrorMsg("Izin mikrofon diperlukan.");
-          return;
-        }
-      }
-
-      console.log("[VoiceInputSheet] Native: Mengatur Audio Mode...");
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const onRecordingStatusUpdate = (recStatus: Audio.RecordingStatus) => {
-        if (recStatus.metering !== undefined) {
-          const normalized = Math.max(
-            0.1,
-            Math.min(1.0, (recStatus.metering + 160) / 160),
-          );
-          updateWaveform(normalized);
-        }
-      };
-
-      console.log(
-        "[VoiceInputSheet] Native: Menyiapkan dan memulai perekaman...",
-      );
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        {
-          android: {
-            extension: ".m4a",
-            outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-            audioEncoder: Audio.AndroidAudioEncoder.AAC,
-            sampleRate: 16000,
-            numberOfChannels: 1,
-            bitRate: 128000,
-          },
-          ios: {
-            extension: ".m4a",
-            audioQuality: Audio.IOSAudioQuality.HIGH,
-            outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-            sampleRate: 16000,
-            numberOfChannels: 1,
-            bitRate: 128000,
-            linearPCMBitDepth: 16,
-            linearPCMIsBigEndian: false,
-            linearPCMIsFloat: false,
-          },
-          web: { mimeType: "audio/webm", bitsPerSecond: 128000 },
-          isMeteringEnabled: true,
-        },
-        onRecordingStatusUpdate,
-        100,
-      );
-
-      if (isDemoModeRef.current) {
-        console.log(
-          "[VoiceInputSheet] Native: Mengabaikan recording karena pengguna memilih Mode Demo.",
-        );
-        newRecording.stopAndUnloadAsync().catch(() => {});
+      console.log("[VoiceInputSheet] Native: Meminta izin mikrofon...");
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        setStatus("error");
+        setErrorMsg("Izin mikrofon diperlukan.");
         return;
       }
 
-      recordingRef.current = newRecording;
-      setRecording(newRecording);
+      console.log("[VoiceInputSheet] Native: Mengatur Audio Mode...");
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+
+      console.log("[VoiceInputSheet] Native: Menyiapkan dan memulai perekaman...");
+      await audioRecorder.prepareToRecordAsync();
+
+      if (isDemoModeRef.current) {
+        console.log(
+          "[VoiceInputSheet] Native: Mengabaikan recording karena pengguna memilih Mode Demo."
+        );
+        return;
+      }
+
+      audioRecorder.record();
       console.log("[VoiceInputSheet] Native: Perekaman berhasil dimulai");
       setStatus("recording");
       setIsRecording(true);
@@ -468,7 +424,7 @@ export default function VoiceInputSheet({
     } catch (err: any) {
       if (isDemoModeRef.current) {
         console.log(
-          "[VoiceInputSheet] Native: Mengabaikan error perekaman karena sedang berjalan dalam Mode Demo.",
+          "[VoiceInputSheet] Native: Mengabaikan error perekaman karena sedang berjalan dalam Mode Demo."
         );
         return;
       }
@@ -518,18 +474,17 @@ export default function VoiceInputSheet({
       );
 
       // Validasi data hasil parsing AI
-      if (!parsed || typeof parsed !== "object") {
+      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.transactions) || parsed.transactions.length === 0) {
         throw new Error("JSON_PARSE_FAILED");
       }
-      if (!parsed.item || parsed.item.trim() === "") {
+      
+      const firstValid = parsed.transactions.find(t => t.item && t.item.trim() !== "");
+      if (!firstValid) {
         throw new Error("INVALID_ITEM");
       }
-      if (
-        parsed.nominal === undefined ||
-        parsed.nominal === null ||
-        isNaN(parsed.nominal) ||
-        parsed.nominal <= 0
-      ) {
+      
+      const firstValidNominal = parsed.transactions.find(t => t.nominal !== undefined && t.nominal !== null && !isNaN(t.nominal) && t.nominal > 0);
+      if (!firstValidNominal) {
         throw new Error("INVALID_NOMINAL");
       }
 
@@ -598,19 +553,14 @@ export default function VoiceInputSheet({
       if (!mr || mr.state === "inactive") return;
       mr.stop(); // onstop dipanggil async setelah semua chunk terkumpul
     } else {
-      // Native (iOS/Android): pakai expo-av
-      const activeRecording = recordingRef.current;
-      if (!activeRecording) return;
-
+      // Native (iOS/Android): pakai expo-audio
       try {
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: false,
+        await audioRecorder.stop();
+        const uri = audioRecorder.uri;
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: false,
         });
-        await activeRecording.stopAndUnloadAsync();
-        const uri = activeRecording.getURI();
-        recordingRef.current = null;
-        setRecording(null);
 
         if (!uri) throw new Error("File rekaman tidak ditemukan.");
         await processAudioUri(uri);
@@ -622,29 +572,38 @@ export default function VoiceInputSheet({
     }
   };
 
-  const setupForm = (parsed: ParsedTransaction) => {
-    setParsedData(parsed);
-    setEditItem(parsed.item);
-    setEditNominal(
-      parsed.nominal.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "."),
-    );
-    setEditType(parsed.type);
-    setEditCategory(parsed.kategori);
-    setEditPembayaran(parsed.pembayaran);
-    setEditCatatan("");
+  const setupForm = (parsed: ParsedTransactionResponse) => {
+    const edits = parsed.transactions.map((t, idx) => ({
+      id: `tx-${idx}-${Date.now()}`,
+      item: t.item || "",
+      nominal: t.nominal ? t.nominal.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".") : "",
+      type: t.type || "Pengeluaran",
+      kategori: t.kategori || (t.type === "Pemasukan" ? INCOME_CATEGORIES[0] : EXPENSE_CATEGORIES[0]),
+      pembayaran: t.pembayaran || "Cash",
+      catatan: "",
+    }));
+    setParsedTransactions(edits);
   };
 
   const handleSaveParsed = async () => {
     setErrorMsg(null);
-    const cleanNominal = Number(editNominal.replace(/[^0-9]/g, ""));
-
-    if (!editItem.trim()) {
-      setErrorMsg("Deskripsi item wajib diisi.");
+    
+    if (parsedTransactions.length === 0) {
+      setErrorMsg("Tidak ada transaksi untuk disimpan.");
       return;
     }
-    if (cleanNominal <= 0) {
-      setErrorMsg("Nominal harus lebih besar dari Rp 0.");
-      return;
+
+    for (let i = 0; i < parsedTransactions.length; i++) {
+      const tx = parsedTransactions[i];
+      const cleanNominal = Number(tx.nominal.replace(/[^0-9]/g, ""));
+      if (!tx.item.trim()) {
+        setErrorMsg(`Deskripsi item pada transaksi ke-${i + 1} wajib diisi.`);
+        return;
+      }
+      if (cleanNominal <= 0) {
+        setErrorMsg(`Nominal pada transaksi ke-${i + 1} harus lebih besar dari Rp 0.`);
+        return;
+      }
     }
 
     if (!token) {
@@ -660,15 +619,18 @@ export default function VoiceInputSheet({
       const dd = String(today.getDate()).padStart(2, "0");
       const dateStr = `${yyyy}-${mm}-${dd}`;
 
-      await addTransaction(token, {
-        tanggal: dateStr,
-        kategori: `${editType === "Pemasukan" ? "Pemasukan" : "Pengeluaran"}: ${editCategory}`,
-        keterangan: editItem.trim(),
-        nominal: cleanNominal,
-        pembayaran: editPembayaran,
-        catatan: editCatatan.trim(),
-        sumberInput: "Voice",
-      });
+      for (const tx of parsedTransactions) {
+        const cleanNominal = Number(tx.nominal.replace(/[^0-9]/g, ""));
+        await addTransaction(token, {
+          tanggal: dateStr,
+          kategori: `${tx.type === "Pemasukan" ? "Pemasukan" : "Pengeluaran"}: ${tx.kategori}`,
+          keterangan: tx.item.trim(),
+          nominal: cleanNominal,
+          pembayaran: tx.pembayaran,
+          catatan: tx.catatan.trim(),
+          sumberInput: "Voice",
+        });
+      }
 
       onDismiss();
     } catch (err: any) {
@@ -678,27 +640,38 @@ export default function VoiceInputSheet({
     }
   };
 
+  const updateTransaction = (id: string, field: keyof EditableTransaction, value: any) => {
+    setParsedTransactions(prev => prev.map(tx => {
+      if (tx.id === id) {
+        if (field === 'type' && tx.type !== value) {
+            return {
+                ...tx,
+                type: value,
+                kategori: value === "Pengeluaran" ? EXPENSE_CATEGORIES[0] : INCOME_CATEGORIES[0]
+            };
+        }
+        if (field === 'nominal') {
+            const clean = value.replace(/[^0-9]/g, "");
+            const formatted = clean.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+            return { ...tx, nominal: formatted };
+        }
+        return { ...tx, [field]: value };
+      }
+      return tx;
+    }));
+  };
+
+  const removeTransaction = (id: string) => {
+      setParsedTransactions(prev => prev.filter(tx => tx.id !== id));
+  };
+
   const formatDuration = (sec: number) => {
     const mm = String(Math.floor(sec / 60)).padStart(2, "0");
     const ss = String(sec % 60).padStart(2, "0");
     return `${mm}:${ss}`;
   };
 
-  const handleNominalChange = (text: string) => {
-    const clean = text.replace(/[^0-9]/g, "");
-    const formatted = clean.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-    setEditNominal(formatted);
-  };
-
-  const handleTypeChange = (newType: "Pengeluaran" | "Pemasukan") => {
-    setEditType(newType);
-    setEditCategory(
-      newType === "Pengeluaran" ? EXPENSE_CATEGORIES[0] : INCOME_CATEGORIES[0],
-    );
-  };
-
-  const categories =
-    editType === "Pengeluaran" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
+  // categories and handlers removed since they are handled per transaction in updateTransaction
 
   return (
     <Portal>
@@ -861,180 +834,190 @@ export default function VoiceInputSheet({
 
           {/* 3. Transaction Preview / Edit Form */}
           {status === "preview" && (
-            <ScrollView
-              style={{ width: "100%" }}
-              contentContainerStyle={styles.previewContainer}
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.sheetIndicator} />
+            <View style={{ width: "100%", flexShrink: 1 }}>
+              <View style={{ width: "100%", paddingHorizontal: 24, alignItems: "center" }}>
+                <View style={styles.sheetIndicator} />
 
-              <Text style={styles.previewTitle}>Hasil Analisis AI</Text>
-              <Text style={styles.transcriptionText}>"{transcription}"</Text>
+                <Text style={styles.previewTitle}>Hasil Analisis AI</Text>
+                <Text style={styles.transcriptionText}>"{transcription}"</Text>
+              </View>
 
-              {isDemoMode && (
-                <View style={styles.demoBanner}>
-                  <Text style={styles.demoText}>
-                    ℹ️ Menjalankan Mode Demo Offline (API Key tidak ditemukan)
-                  </Text>
-                </View>
-              )}
+              <ScrollView
+                style={{ width: "100%" }}
+                contentContainerStyle={styles.previewContainer}
+                showsVerticalScrollIndicator={false}
+              >
+                {errorMsg && (
+                  <View style={styles.errorBox}>
+                    <Text style={styles.errorText}>{errorMsg}</Text>
+                  </View>
+                )}
 
-              {errorMsg && (
-                <View style={styles.errorBox}>
-                  <Text style={styles.errorText}>{errorMsg}</Text>
-                </View>
-              )}
+                {/* Editable Form Cards */}
+                {parsedTransactions.map((tx, index) => {
+                const txCategories = tx.type === "Pengeluaran" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
+                
+                return (
+                  <View key={tx.id} style={styles.formCard}>
+                    <View style={styles.txHeaderRow}>
+                      <Text style={styles.txHeaderLabel}>Transaksi {index + 1}</Text>
+                      {parsedTransactions.length > 1 && (
+                        <TouchableOpacity onPress={() => removeTransaction(tx.id)} style={styles.txRemoveBtn}>
+                          <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
 
-              {/* Editable Form Card */}
-              <View style={styles.formCard}>
-                {/* Type selector */}
-                <View style={styles.rowToggles}>
-                  <TouchableOpacity
-                    onPress={() => handleTypeChange("Pengeluaran")}
-                    activeOpacity={0.8}
-                    style={[
-                      styles.toggleBtn,
-                      editType === "Pengeluaran" && styles.toggleActiveExpense,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.toggleText,
-                        editType === "Pengeluaran" && styles.toggleActiveText,
-                      ]}
-                    >
-                      Pengeluaran
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleTypeChange("Pemasukan")}
-                    activeOpacity={0.8}
-                    style={[
-                      styles.toggleBtn,
-                      editType === "Pemasukan" && styles.toggleActiveIncome,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.toggleText,
-                        editType === "Pemasukan" && styles.toggleActiveText,
-                      ]}
-                    >
-                      Pemasukan
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Item Name */}
-                <TextInput
-                  mode="outlined"
-                  label="Item / Deskripsi"
-                  value={editItem}
-                  onChangeText={setEditItem}
-                  outlineColor="#E2E8F0"
-                  activeOutlineColor="#FF90BB"
-                  style={styles.formInput}
-                  outlineStyle={{ borderRadius: 12 }}
-                />
-
-                {/* Nominal */}
-                <TextInput
-                  mode="outlined"
-                  label="Nominal"
-                  value={editNominal}
-                  onChangeText={handleNominalChange}
-                  keyboardType="numeric"
-                  left={<TextInput.Affix text="Rp " />}
-                  outlineColor="#E2E8F0"
-                  activeOutlineColor="#FF90BB"
-                  style={styles.formInput}
-                  outlineStyle={{ borderRadius: 12 }}
-                />
-
-                {/* Category Selection */}
-                <Text style={styles.sectionLabel}>Kategori</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.categoryScroll}
-                >
-                  {categories.map((cat) => {
-                    const isSelected = editCategory === cat;
-                    return (
+                    {/* Type selector */}
+                    <View style={styles.rowToggles}>
                       <TouchableOpacity
-                        key={cat}
-                        onPress={() => setEditCategory(cat)}
+                        onPress={() => updateTransaction(tx.id, "type", "Pengeluaran")}
                         activeOpacity={0.8}
                         style={[
-                          styles.categoryChip,
-                          isSelected && styles.categoryChipSelected,
+                          styles.toggleBtn,
+                          tx.type === "Pengeluaran" && styles.toggleActiveExpense,
                         ]}
                       >
                         <Text
                           style={[
-                            styles.chipText,
-                            isSelected && styles.chipTextSelected,
+                            styles.toggleText,
+                            tx.type === "Pengeluaran" && styles.toggleActiveText,
                           ]}
                         >
-                          {cat}
+                          Pengeluaran
                         </Text>
                       </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
+                      <TouchableOpacity
+                        onPress={() => updateTransaction(tx.id, "type", "Pemasukan")}
+                        activeOpacity={0.8}
+                        style={[
+                          styles.toggleBtn,
+                          tx.type === "Pemasukan" && styles.toggleActiveIncome,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.toggleText,
+                            tx.type === "Pemasukan" && styles.toggleActiveText,
+                          ]}
+                        >
+                          Pemasukan
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
 
-                {/* Payment Method */}
-                <Text style={styles.sectionLabel}>Metode Pembayaran</Text>
-                <View style={styles.payToggles}>
-                  <TouchableOpacity
-                    onPress={() => setEditPembayaran("Cash")}
-                    activeOpacity={0.8}
-                    style={[
-                      styles.payBtn,
-                      editPembayaran === "Cash" && styles.payBtnActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.payText,
-                        editPembayaran === "Cash" && styles.payTextActive,
-                      ]}
-                    >
-                      Tunai / Debit
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setEditPembayaran("Paylater")}
-                    activeOpacity={0.8}
-                    style={[
-                      styles.payBtn,
-                      editPembayaran === "Paylater" && styles.payBtnActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.payText,
-                        editPembayaran === "Paylater" && styles.payTextActive,
-                      ]}
-                    >
-                      Paylater
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+                    {/* Item Name */}
+                    <TextInput
+                      mode="outlined"
+                      label="Item / Deskripsi"
+                      value={tx.item}
+                      onChangeText={(val) => updateTransaction(tx.id, "item", val)}
+                      outlineColor="#E2E8F0"
+                      activeOutlineColor="#FF90BB"
+                      style={styles.formInput}
+                      outlineStyle={{ borderRadius: 12 }}
+                    />
 
-                {/* Notes (Optional) */}
-                <TextInput
-                  mode="outlined"
-                  label="Catatan (Opsional)"
-                  value={editCatatan}
-                  onChangeText={setEditCatatan}
-                  multiline
-                  outlineColor="#E2E8F0"
-                  activeOutlineColor="#FF90BB"
-                  style={[styles.formInput, { minHeight: 60 }]}
-                  outlineStyle={{ borderRadius: 12 }}
-                />
-              </View>
+                    {/* Nominal */}
+                    <TextInput
+                      mode="outlined"
+                      label="Nominal"
+                      value={tx.nominal}
+                      onChangeText={(val) => updateTransaction(tx.id, "nominal", val)}
+                      keyboardType="numeric"
+                      left={<TextInput.Affix text="Rp " />}
+                      outlineColor="#E2E8F0"
+                      activeOutlineColor="#FF90BB"
+                      style={styles.formInput}
+                      outlineStyle={{ borderRadius: 12 }}
+                    />
+
+                    {/* Category Selection */}
+                    <Text style={styles.sectionLabel}>Kategori</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.categoryScroll}
+                    >
+                      {txCategories.map((cat) => {
+                        const isSelected = tx.kategori === cat;
+                        return (
+                          <TouchableOpacity
+                            key={cat}
+                            onPress={() => updateTransaction(tx.id, "kategori", cat)}
+                            activeOpacity={0.8}
+                            style={[
+                              styles.categoryChip,
+                              isSelected && styles.categoryChipSelected,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.chipText,
+                                isSelected && styles.chipTextSelected,
+                              ]}
+                            >
+                              {cat}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+
+                    {/* Payment Method */}
+                    <Text style={styles.sectionLabel}>Metode Pembayaran</Text>
+                    <View style={styles.payToggles}>
+                      <TouchableOpacity
+                        onPress={() => updateTransaction(tx.id, "pembayaran", "Cash")}
+                        activeOpacity={0.8}
+                        style={[
+                          styles.payBtn,
+                          tx.pembayaran === "Cash" && styles.payBtnActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.payText,
+                            tx.pembayaran === "Cash" && styles.payTextActive,
+                          ]}
+                        >
+                          Tunai / Debit
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => updateTransaction(tx.id, "pembayaran", "Paylater")}
+                        activeOpacity={0.8}
+                        style={[
+                          styles.payBtn,
+                          tx.pembayaran === "Paylater" && styles.payBtnActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.payText,
+                            tx.pembayaran === "Paylater" && styles.payTextActive,
+                          ]}
+                        >
+                          Paylater
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Notes (Optional) */}
+                    <TextInput
+                      mode="outlined"
+                      label="Catatan (Opsional)"
+                      value={tx.catatan}
+                      onChangeText={(val) => updateTransaction(tx.id, "catatan", val)}
+                      multiline
+                      outlineColor="#E2E8F0"
+                      activeOutlineColor="#FF90BB"
+                      style={[styles.formInput, { minHeight: 60 }]}
+                      outlineStyle={{ borderRadius: 12 }}
+                    />
+                  </View>
+                );
+              })}
 
               {/* Form Buttons */}
               <View style={styles.buttonRow}>
@@ -1056,6 +1039,7 @@ export default function VoiceInputSheet({
                 </Button>
               </View>
             </ScrollView>
+            </View>
           )}
 
           {/* 4. Error Screen */}
@@ -1355,6 +1339,27 @@ const styles = StyleSheet.create({
   formCard: {
     width: "100%",
     marginBottom: 20,
+    backgroundColor: "#F8FAFC",
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  txHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  txHeaderLabel: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 14,
+    color: "#334155",
+  },
+  txRemoveBtn: {
+    padding: 4,
+    backgroundColor: "#FEE2E2",
+    borderRadius: 8,
   },
   rowToggles: {
     flexDirection: "row",
