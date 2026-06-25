@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   StyleSheet,
   View,
@@ -12,13 +12,21 @@ import { Portal, Modal, Text, Button, TextInput } from "react-native-paper";
 
 import { MotiView, MotiText } from "moti";
 
-import { useAudioRecorder, AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorderState } from "expo-audio";
+import {
+  useAudioRecorder,
+  AudioModule,
+  RecordingPresets,
+  setAudioModeAsync,
+  useAudioRecorderState,
+} from "expo-audio";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withRepeat,
   withTiming,
   withSequence,
+  withSpring,
+  cancelAnimation,
 } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "../stores/useAuthStore";
@@ -61,6 +69,9 @@ const INCOME_CATEGORIES = [
   "Hadiah",
   "Lainnya",
 ];
+
+const LEFT_SCALES = [0.1, 0.15, 0.2, 0.25, 0.3, 0.5, 0.8, 1.2, 1.0, 0.6];
+const RIGHT_SCALES = [0.6, 1.0, 1.2, 0.8, 0.5, 0.3, 0.25, 0.2, 0.15, 0.1];
 
 const MOCK_PHRASES = [
   {
@@ -147,15 +158,61 @@ export default function VoiceInputSheet({
     "idle" | "recording" | "transcribing" | "parsing" | "preview" | "error"
   >("idle");
   const [isRecording, setIsRecording] = useState(false);
-  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const audioRecorder = useAudioRecorder({
+    ...RecordingPresets.HIGH_QUALITY,
+    isMeteringEnabled: true,
+  });
   const audioRecorderState = useAudioRecorderState(audioRecorder, 100);
-    const [recordDuration, setRecordDuration] = useState(0);
-  const [waveform, setWaveform] = useState<number[]>([
-    0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
-  ]);
+  const [recordDuration, setRecordDuration] = useState(0);
+
+  // ─── Waveform: simple state array, diupdate tiap metering tick ───────────────
+  const BAR_COUNT = 28;
+  const [waveHeights, setWaveHeights] = useState<number[]>(
+    Array(BAR_COUNT).fill(4),
+  );
+  const waveBufferRef = useRef<number[]>(Array(BAR_COUNT).fill(0.04));
+  const waveIntervalRef = useRef<any>(null);
+  const currentVolRef = useRef(0);
+  const isRecordingRef = useRef(false);
+
+  const startWaveInterval = useCallback(() => {
+    if (waveIntervalRef.current) clearInterval(waveIntervalRef.current);
+    waveIntervalRef.current = setInterval(() => {
+      if (!isRecordingRef.current) return;
+      const vol = currentVolRef.current;
+      const buf = waveBufferRef.current;
+      const center = (BAR_COUNT - 1) / 2;
+      // Scroll kiri, push nilai baru di kanan
+      for (let i = 0; i < BAR_COUNT - 1; i++) buf[i] = buf[i + 1];
+      buf[BAR_COUNT - 1] = Math.min(
+        1,
+        Math.max(0.04, vol * (0.8 + Math.random() * 0.4)),
+      );
+      // Hitung tinggi bar dengan bell-curve shape
+      const heights = buf.map((v, i) => {
+        const dist = Math.abs(i - center) / center;
+        const shape = 1 - dist * 0.45;
+        return Math.max(4, v * 60 * shape);
+      });
+      setWaveHeights([...heights]);
+    }, 60);
+  }, []);
+
+  const stopWaveInterval = useCallback(() => {
+    isRecordingRef.current = false;
+    if (waveIntervalRef.current) {
+      clearInterval(waveIntervalRef.current);
+      waveIntervalRef.current = null;
+    }
+    waveBufferRef.current = Array(BAR_COUNT).fill(0.04);
+    currentVolRef.current = 0;
+    setWaveHeights(Array(BAR_COUNT).fill(4));
+  }, []);
 
   const [transcription, setTranscription] = useState("");
-  const [parsedTransactions, setParsedTransactions] = useState<EditableTransaction[]>([]);
+  const [parsedTransactions, setParsedTransactions] = useState<
+    EditableTransaction[]
+  >([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Demo Mode Flags (activated if API keys are missing)
@@ -164,37 +221,83 @@ export default function VoiceInputSheet({
   // Editable array managed in parsedTransactions state
 
   const timerRef = useRef<any>(null);
-    // useRef<any> untuk MediaRecorder agar tidak error TypeScript di environment React Native
+  // useRef<any> untuk MediaRecorder agar tidak error TypeScript di environment React Native
   const mediaRecorderRef = useRef<any>(null);
   const audioChunksRef = useRef<any[]>([]);
   const prevVisibleRef = useRef(false);
   const isDemoModeRef = useRef(false);
 
-  // Voice assistant animations using Reanimated
+  // Voice assistant animations using Reanimated (orb + pulse rings saja)
   const orbScale = useSharedValue(1);
-  const orbPulseScale = useSharedValue(1);
-  const orbPulseOpacity = useSharedValue(0.6);
+  const pulseScale1 = useSharedValue(1);
+  const pulseOpacity1 = useSharedValue(0);
+  const pulseScale2 = useSharedValue(1);
+  const pulseOpacity2 = useSharedValue(0);
 
   const animatedOrbStyle = useAnimatedStyle(() => ({
     transform: [{ scale: orbScale.value }],
   }));
 
-  const animatedPulseRingStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: orbPulseScale.value }],
-    opacity: orbPulseOpacity.value,
+  const animatedPulseRingStyle1 = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseScale1.value }],
+    opacity: pulseOpacity1.value,
   }));
 
-  // ─── Helper: animasi waveform dari volume level (0.0–1.0) ───────────────────
-  const updateWaveform = (normalized: number) => {
-    setWaveform((prev) =>
-      prev.map((_, i) => {
-        if (i === prev.length - 1) return normalized;
-        return prev[i + 1] * 0.85 + Math.random() * 0.15 * normalized;
-      }),
-    );
+  const animatedPulseRingStyle2 = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseScale2.value }],
+    opacity: pulseOpacity2.value,
+  }));
+
+  const handleCancel = () => {
+    resetAll();
+    onDismiss();
   };
 
-  // ─── Start timer ─────────────────────────────────────────────────────────────
+  // ─── Helper: terima volume dari audio source ──────────────────────────────────
+  const updateVolume = useCallback(
+    (normalized: number) => {
+      // Simpan ke ref — interval waveform akan pakai ini tiap tick
+      currentVolRef.current = normalized;
+
+      // Orb scale reaktif via withSpring
+      orbScale.value = withSpring(1.0 + normalized * 0.22, {
+        damping: 7,
+        stiffness: 160,
+      });
+
+      // Pulse rings reaktif
+      const dur = Math.max(350, 1100 - normalized * 750);
+      const maxScale = 1.5 + normalized * 0.55;
+      const maxOpacity = 0.12 + normalized * 0.38;
+
+      pulseScale1.value = withTiming(maxScale, { duration: dur }, () => {
+        "worklet";
+        pulseScale1.value = 1.0;
+      });
+      pulseOpacity1.value = withSequence(
+        withTiming(maxOpacity, { duration: 60 }),
+        withTiming(0, { duration: dur - 60 }),
+      );
+      pulseScale2.value = withTiming(
+        maxScale * 1.18,
+        { duration: dur * 1.35 },
+        () => {
+          "worklet";
+          pulseScale2.value = 1.0;
+        },
+      );
+      pulseOpacity2.value = withSequence(
+        withTiming(maxOpacity * 0.55, { duration: 60 }),
+        withTiming(0, { duration: dur * 1.35 - 60 }),
+      );
+    },
+    [orbScale, pulseScale1, pulseOpacity1, pulseScale2, pulseOpacity2],
+  );
+
+  const updateVolumeRef = useRef(updateVolume);
+  useEffect(() => {
+    updateVolumeRef.current = updateVolume;
+  }, [updateVolume]);
   const startTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
@@ -205,7 +308,9 @@ export default function VoiceInputSheet({
   // ─── Reset semua state ke kondisi awal ───────────────────────────────────────
   const resetAll = () => {
     if (audioRecorder.isRecording) {
-      try { audioRecorder.stop(); } catch (e) {}
+      try {
+        audioRecorder.stop();
+      } catch (e) {}
     }
     if (
       mediaRecorderRef.current &&
@@ -219,9 +324,7 @@ export default function VoiceInputSheet({
     setStatus("idle");
     setIsRecording(false);
     setRecordDuration(0);
-    setWaveform([
-      0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
-    ]);
+    stopWaveInterval();
     setTranscription("");
     setParsedTransactions([]);
     setErrorMsg(null);
@@ -231,42 +334,77 @@ export default function VoiceInputSheet({
 
   // ─── Effects ─────────────────────────────────────────────────────────────────
 
-  // Waveform via expo-audio metering
+  // Waveform + orb via expo-audio metering (native)
   useEffect(() => {
     if (status === "recording" && audioRecorderState?.metering !== undefined) {
+      // expo-audio metering range: -160 (silent) to 0 (max)
       const normalized = Math.max(
-        0.1,
+        0.04,
         Math.min(1.0, (audioRecorderState.metering + 160) / 160),
       );
-      updateWaveform(normalized);
+      updateVolume(normalized);
     }
-  }, [audioRecorderState?.metering, status]);
+  }, [audioRecorderState?.metering, status, updateVolume]);
 
-  // Animasi orb saat status recording berubah
+  // Animasi orb & wave interval saat status recording berubah
+  const idleWaveIntervalRef = useRef<any>(null);
+
   useEffect(() => {
     if (status === "recording") {
+      isRecordingRef.current = true;
+      startWaveInterval();
+
+      // Orb breathing baseline
       orbScale.value = withRepeat(
         withSequence(
-          withTiming(1.08, { duration: 750 }),
-          withTiming(1.0, { duration: 750 }),
+          withTiming(1.05, { duration: 650 }),
+          withTiming(1.0, { duration: 650 }),
         ),
         -1,
         true,
       );
-      orbPulseScale.value = withRepeat(
-        withTiming(1.3, { duration: 1500 }),
+      pulseScale1.value = withRepeat(
+        withTiming(1.6, { duration: 1600 }),
         -1,
         false,
       );
-      orbPulseOpacity.value = withRepeat(
-        withTiming(0, { duration: 1500 }),
+      pulseOpacity1.value = withRepeat(
+        withSequence(
+          withTiming(0.15, { duration: 0 }),
+          withTiming(0, { duration: 1600 }),
+        ),
+        -1,
+        false,
+      );
+      pulseScale2.value = withRepeat(
+        withSequence(
+          withTiming(1.0, { duration: 650 }),
+          withTiming(1.8, { duration: 950 }),
+        ),
+        -1,
+        false,
+      );
+      pulseOpacity2.value = withRepeat(
+        withSequence(
+          withTiming(0, { duration: 650 }),
+          withTiming(0.08, { duration: 0 }),
+          withTiming(0, { duration: 950 }),
+        ),
         -1,
         false,
       );
     } else {
-      orbScale.value = 1;
-      orbPulseScale.value = 1;
-      orbPulseOpacity.value = 0.6;
+      stopWaveInterval();
+      cancelAnimation(orbScale);
+      cancelAnimation(pulseScale1);
+      cancelAnimation(pulseOpacity1);
+      cancelAnimation(pulseScale2);
+      cancelAnimation(pulseOpacity2);
+      orbScale.value = withTiming(1, { duration: 200 });
+      pulseScale1.value = 1;
+      pulseOpacity1.value = 0;
+      pulseScale2.value = 1;
+      pulseOpacity2.value = 0;
     }
   }, [status]);
 
@@ -280,6 +418,7 @@ export default function VoiceInputSheet({
         mediaRecorderRef.current.stop();
       }
       if (timerRef.current) clearInterval(timerRef.current);
+      if (waveIntervalRef.current) clearInterval(waveIntervalRef.current);
     };
   }, []);
 
@@ -319,24 +458,31 @@ export default function VoiceInputSheet({
         return;
       }
 
-      // Waveform via AnalyserNode (Web Audio API)
+      // Waveform via AnalyserNode (Web Audio API) — pakai rAF agar smooth
       const AudioCtx =
         (window as any).AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioCtx();
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.6;
       source.connect(analyser);
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let webRaf: any = null;
 
-      const waveformInterval = setInterval(() => {
+      const webAudioTick = () => {
+        if (!isRecordingRef.current) return;
         analyser.getByteFrequencyData(dataArray);
-        const avg =
-          dataArray.reduce((a: number, b: number) => a + b, 0) /
-          dataArray.length;
-        const normalized = Math.max(0.1, Math.min(1.0, avg / 128));
-        updateWaveform(normalized);
-      }, 100);
+        // Fokus ke frekuensi suara manusia (~80Hz–3kHz = bin 1..~60 dari 256 bin)
+        let sum = 0;
+        const voiceBins = Math.floor(dataArray.length * 0.25);
+        for (let i = 1; i < voiceBins; i++) sum += dataArray[i];
+        const avg = sum / (voiceBins - 1);
+        const normalized = Math.max(0.04, Math.min(1.0, avg / 100));
+        updateVolumeRef.current(normalized);
+        webRaf = requestAnimationFrame(webAudioTick);
+      };
+      webRaf = requestAnimationFrame(webAudioTick);
 
       audioChunksRef.current = [];
 
@@ -351,7 +497,7 @@ export default function VoiceInputSheet({
       };
 
       mediaRecorder.onstop = async () => {
-        clearInterval(waveformInterval);
+        if (webRaf) cancelAnimationFrame(webRaf);
         stream.getTracks().forEach((t: any) => t.stop());
         audioCtx.close();
 
@@ -365,6 +511,7 @@ export default function VoiceInputSheet({
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start(100);
 
+      isRecordingRef.current = true;
       setStatus("recording");
       setIsRecording(true);
       setRecordDuration(0);
@@ -405,18 +552,21 @@ export default function VoiceInputSheet({
         playsInSilentMode: true,
       });
 
-      console.log("[VoiceInputSheet] Native: Menyiapkan dan memulai perekaman...");
+      console.log(
+        "[VoiceInputSheet] Native: Menyiapkan dan memulai perekaman...",
+      );
       await audioRecorder.prepareToRecordAsync();
 
       if (isDemoModeRef.current) {
         console.log(
-          "[VoiceInputSheet] Native: Mengabaikan recording karena pengguna memilih Mode Demo."
+          "[VoiceInputSheet] Native: Mengabaikan recording karena pengguna memilih Mode Demo.",
         );
         return;
       }
 
       audioRecorder.record();
       console.log("[VoiceInputSheet] Native: Perekaman berhasil dimulai");
+      isRecordingRef.current = true;
       setStatus("recording");
       setIsRecording(true);
       setRecordDuration(0);
@@ -424,7 +574,7 @@ export default function VoiceInputSheet({
     } catch (err: any) {
       if (isDemoModeRef.current) {
         console.log(
-          "[VoiceInputSheet] Native: Mengabaikan error perekaman karena sedang berjalan dalam Mode Demo."
+          "[VoiceInputSheet] Native: Mengabaikan error perekaman karena sedang berjalan dalam Mode Demo.",
         );
         return;
       }
@@ -436,10 +586,7 @@ export default function VoiceInputSheet({
 
   // ─── Entry point: deteksi platform lalu panggil yang sesuai ──────────────────
   const startRecording = async () => {
-    console.log(
-      "[VoiceInputSheet] Platform:",
-      Platform.OS,
-    );
+    console.log("[VoiceInputSheet] Platform:", Platform.OS);
     if (Platform.OS === "web") {
       await startRecordingWeb();
     } else {
@@ -461,7 +608,7 @@ export default function VoiceInputSheet({
         !sumopodApiKey ||
         sumopodApiKey.startsWith("placeholder")
       ) {
-        throw new Error("MISSING_API_KEY")
+        throw new Error("MISSING_API_KEY");
       }
 
       const textResult = await transcribeAudio(uri, groqApiKey);
@@ -474,16 +621,29 @@ export default function VoiceInputSheet({
       );
 
       // Validasi data hasil parsing AI
-      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.transactions) || parsed.transactions.length === 0) {
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        !Array.isArray(parsed.transactions) ||
+        parsed.transactions.length === 0
+      ) {
         throw new Error("JSON_PARSE_FAILED");
       }
-      
-      const firstValid = parsed.transactions.find(t => t.item && t.item.trim() !== "");
+
+      const firstValid = parsed.transactions.find(
+        (t) => t.item && t.item.trim() !== "",
+      );
       if (!firstValid) {
         throw new Error("INVALID_ITEM");
       }
-      
-      const firstValidNominal = parsed.transactions.find(t => t.nominal !== undefined && t.nominal !== null && !isNaN(t.nominal) && t.nominal > 0);
+
+      const firstValidNominal = parsed.transactions.find(
+        (t) =>
+          t.nominal !== undefined &&
+          t.nominal !== null &&
+          !isNaN(t.nominal) &&
+          t.nominal > 0,
+      );
       if (!firstValidNominal) {
         throw new Error("INVALID_NOMINAL");
       }
@@ -493,7 +653,7 @@ export default function VoiceInputSheet({
     } catch (err: any) {
       // console.error('Audio processing failed:', err);
       if (err instanceof SpeechApiError && err.message === "MISSING_API_KEY") {
-        throw new Error("MISSING_API_KEY")
+        throw new Error("MISSING_API_KEY");
       } else {
         setStatus("error");
 
@@ -576,9 +736,13 @@ export default function VoiceInputSheet({
     const edits = parsed.transactions.map((t, idx) => ({
       id: `tx-${idx}-${Date.now()}`,
       item: t.item || "",
-      nominal: t.nominal ? t.nominal.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".") : "",
+      nominal: t.nominal
+        ? t.nominal.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+        : "",
       type: t.type || "Pengeluaran",
-      kategori: t.kategori || (t.type === "Pemasukan" ? INCOME_CATEGORIES[0] : EXPENSE_CATEGORIES[0]),
+      kategori:
+        t.kategori ||
+        (t.type === "Pemasukan" ? INCOME_CATEGORIES[0] : EXPENSE_CATEGORIES[0]),
       pembayaran: t.pembayaran || "Cash",
       catatan: "",
     }));
@@ -587,7 +751,7 @@ export default function VoiceInputSheet({
 
   const handleSaveParsed = async () => {
     setErrorMsg(null);
-    
+
     if (parsedTransactions.length === 0) {
       setErrorMsg("Tidak ada transaksi untuk disimpan.");
       return;
@@ -601,7 +765,9 @@ export default function VoiceInputSheet({
         return;
       }
       if (cleanNominal <= 0) {
-        setErrorMsg(`Nominal pada transaksi ke-${i + 1} harus lebih besar dari Rp 0.`);
+        setErrorMsg(
+          `Nominal pada transaksi ke-${i + 1} harus lebih besar dari Rp 0.`,
+        );
         return;
       }
     }
@@ -640,29 +806,38 @@ export default function VoiceInputSheet({
     }
   };
 
-  const updateTransaction = (id: string, field: keyof EditableTransaction, value: any) => {
-    setParsedTransactions(prev => prev.map(tx => {
-      if (tx.id === id) {
-        if (field === 'type' && tx.type !== value) {
+  const updateTransaction = (
+    id: string,
+    field: keyof EditableTransaction,
+    value: any,
+  ) => {
+    setParsedTransactions((prev) =>
+      prev.map((tx) => {
+        if (tx.id === id) {
+          if (field === "type" && tx.type !== value) {
             return {
-                ...tx,
-                type: value,
-                kategori: value === "Pengeluaran" ? EXPENSE_CATEGORIES[0] : INCOME_CATEGORIES[0]
+              ...tx,
+              type: value,
+              kategori:
+                value === "Pengeluaran"
+                  ? EXPENSE_CATEGORIES[0]
+                  : INCOME_CATEGORIES[0],
             };
-        }
-        if (field === 'nominal') {
+          }
+          if (field === "nominal") {
             const clean = value.replace(/[^0-9]/g, "");
             const formatted = clean.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
             return { ...tx, nominal: formatted };
+          }
+          return { ...tx, [field]: value };
         }
-        return { ...tx, [field]: value };
-      }
-      return tx;
-    }));
+        return tx;
+      }),
+    );
   };
 
   const removeTransaction = (id: string) => {
-      setParsedTransactions(prev => prev.filter(tx => tx.id !== id));
+    setParsedTransactions((prev) => prev.filter((tx) => tx.id !== id));
   };
 
   const formatDuration = (sec: number) => {
@@ -687,14 +862,27 @@ export default function VoiceInputSheet({
               {/* Drag Handle */}
               <View style={styles.sheetIndicator} />
 
-              {/* Voice Orb */}
-              <View style={styles.orbContainer}>
+              {/* Title & Hint */}
+              <Text style={styles.assistantStatus}>
+                Ceritakan transaksi Anda
+              </Text>
+              <Text style={styles.assistantHint}>
+                Katakan sesuatu seperti{"\n"}"Beli kopi 25 ribu cash"
+              </Text>
+
+              {/* Main Center Area: Orb */}
+              <View style={styles.orbWrapper}>
                 {status === "recording" && (
-                  // FIX Bug #5: pointerEvents="none" pastikan pulse ring tidak menelan touch event
-                  <Animated.View
-                    pointerEvents="none"
-                    style={[styles.orbPulseRing, animatedPulseRingStyle]}
-                  />
+                  <>
+                    <Animated.View
+                      pointerEvents="none"
+                      style={[styles.orbPulseRing, animatedPulseRingStyle1]}
+                    />
+                    <Animated.View
+                      pointerEvents="none"
+                      style={[styles.orbPulseRing, animatedPulseRingStyle2]}
+                    />
+                  </>
                 )}
                 <TouchableOpacity
                   onPress={
@@ -708,82 +896,99 @@ export default function VoiceInputSheet({
                     pointerEvents="none"
                     style={[styles.voiceOrb, animatedOrbStyle]}
                   >
-                    <Ionicons name="mic" size={40} color="#FFFFFF" />
+                    <Ionicons
+                      name={status === "recording" ? "stop" : "mic"}
+                      size={40}
+                      color="#FFFFFF"
+                    />
                   </Animated.View>
                 </TouchableOpacity>
               </View>
 
-              {/* Status Text */}
-              <Text style={styles.assistantStatus}>
-                {status === "recording"
-                  ? "Sedang mendengarkan..."
-                  : "Ceritakan transaksi Anda"}
-              </Text>
-
-              <Text style={styles.assistantHint}>
-                {status === "recording"
-                  ? "Katakan item belanja, nominal, dan cara bayar..."
-                  : 'Katakan sesuatu seperti "Beli kopi 25 ribu cash"'}
-              </Text>
-
-              {/* Timer Badge */}
-              {status === "recording" && (
-                <View style={styles.timerBadge}>
-                  <Text style={styles.timerBadgeText}>
-                    {formatDuration(recordDuration)}
-                  </Text>
-                </View>
-              )}
-
-              {/* Live Waveform Equalizer */}
-              {/* FIX Bug #4: Hapus pointerEvents="none" dari container waveform agar tidak memblokir touch tombol stop di bawahnya */}
-              {status === "recording" ? (
-                <View style={styles.waveformContainer}>
-                  {waveform.map((val, idx) => (
+              {/* Full-width Waveform */}
+              <View style={styles.waveformContainer}>
+                {waveHeights.map((h, idx) => {
+                  const center = (BAR_COUNT - 1) / 2;
+                  const dist = Math.abs(idx - center) / center;
+                  const opacity = 0.28 + (1 - dist) * 0.72;
+                  return (
                     <MotiView
-                      key={idx}
-                      from={{ height: 8 }}
-                      animate={{ height: val * 44 + 8 }}
-                      transition={{ type: "timing", duration: 100 }}
+                      key={`bar-${idx}`}
+                      animate={{ height: h }}
+                      transition={{
+                        type: "spring",
+                        damping: 12,
+                        stiffness: 220,
+                        mass: 0.6,
+                      }}
                       style={[
                         styles.waveBar,
-                        {
-                          backgroundColor:
-                            idx % 2 === 0 ? "#FF90BB" : "#FFC1DA",
-                        },
+                        { opacity, backgroundColor: "#FF7096" },
                       ]}
                     />
-                  ))}
-                </View>
-              ) : (
-                <View style={styles.waveformPlaceholder} />
-              )}
+                  );
+                })}
+              </View>
 
-              {/* Stop Button or Start Button Text */}
-              {status === "recording" ? (
-                <TouchableOpacity
-                  onPress={stopRecording}
-                  activeOpacity={0.85}
-                  style={styles.stopCircleBtn}
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                >
-                  <Ionicons name="stop" size={24} color="#FFFFFF" />
-                </TouchableOpacity>
-              ) : (
-                <View style={{ alignItems: "center", gap: 4 }}>
-                  <Button
-                    mode="text"
-                    onPress={startRecording}
-                    textColor="#FF90BB"
-                    labelStyle={{
-                      fontFamily: "Poppins_600SemiBold",
-                      fontSize: 13,
+              {/* Timer Duration */}
+              <Text style={styles.durationTimerText}>
+                {formatDuration(recordDuration)}
+              </Text>
+
+              {/* Status Capsule */}
+              <View
+                style={[
+                  styles.statusCapsule,
+                  status === "recording"
+                    ? styles.statusCapsuleListening
+                    : styles.statusCapsuleIdle,
+                ]}
+              >
+                {status === "recording" ? (
+                  <MotiView
+                    from={{ opacity: 0.3 }}
+                    animate={{ opacity: 1 }}
+                    transition={{
+                      type: "timing",
+                      duration: 800,
+                      loop: true,
+                      repeatReverse: true,
                     }}
-                  >
-                    Mulai Merekam
-                  </Button>
-                </View>
-              )}
+                    style={[styles.statusDot, { backgroundColor: "#10B981" }]}
+                  />
+                ) : (
+                  <View
+                    style={[styles.statusDot, { backgroundColor: "#94A3B8" }]}
+                  />
+                )}
+                <Text
+                  style={[
+                    styles.statusCapsuleText,
+                    status === "recording"
+                      ? { color: "#10B981" }
+                      : { color: "#64748B" },
+                  ]}
+                >
+                  {status === "recording"
+                    ? "Sedang mendengarkan..."
+                    : "Tekan mic untuk mulai"}
+                </Text>
+              </View>
+
+              {/* Cancel Button */}
+              <TouchableOpacity
+                onPress={handleCancel}
+                activeOpacity={0.8}
+                style={styles.cancelBtnCapsule}
+              >
+                <Ionicons
+                  name="close-circle-outline"
+                  size={20}
+                  color="#FF7096"
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={styles.cancelBtnCapsuleText}>Batalkan</Text>
+              </TouchableOpacity>
             </View>
           )}
 
@@ -835,7 +1040,13 @@ export default function VoiceInputSheet({
           {/* 3. Transaction Preview / Edit Form */}
           {status === "preview" && (
             <View style={{ width: "100%", flexShrink: 1 }}>
-              <View style={{ width: "100%", paddingHorizontal: 24, alignItems: "center" }}>
+              <View
+                style={{
+                  width: "100%",
+                  paddingHorizontal: 24,
+                  alignItems: "center",
+                }}
+              >
                 <View style={styles.sheetIndicator} />
 
                 <Text style={styles.previewTitle}>Hasil Analisis AI</Text>
@@ -855,190 +1066,223 @@ export default function VoiceInputSheet({
 
                 {/* Editable Form Cards */}
                 {parsedTransactions.map((tx, index) => {
-                const txCategories = tx.type === "Pengeluaran" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
-                
-                return (
-                  <View key={tx.id} style={styles.formCard}>
-                    <View style={styles.txHeaderRow}>
-                      <Text style={styles.txHeaderLabel}>Transaksi {index + 1}</Text>
-                      {parsedTransactions.length > 1 && (
-                        <TouchableOpacity onPress={() => removeTransaction(tx.id)} style={styles.txRemoveBtn}>
-                          <Ionicons name="trash-outline" size={18} color="#EF4444" />
-                        </TouchableOpacity>
-                      )}
-                    </View>
+                  const txCategories =
+                    tx.type === "Pengeluaran"
+                      ? EXPENSE_CATEGORIES
+                      : INCOME_CATEGORIES;
 
-                    {/* Type selector */}
-                    <View style={styles.rowToggles}>
-                      <TouchableOpacity
-                        onPress={() => updateTransaction(tx.id, "type", "Pengeluaran")}
-                        activeOpacity={0.8}
-                        style={[
-                          styles.toggleBtn,
-                          tx.type === "Pengeluaran" && styles.toggleActiveExpense,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.toggleText,
-                            tx.type === "Pengeluaran" && styles.toggleActiveText,
-                          ]}
-                        >
-                          Pengeluaran
+                  return (
+                    <View key={tx.id} style={styles.formCard}>
+                      <View style={styles.txHeaderRow}>
+                        <Text style={styles.txHeaderLabel}>
+                          Transaksi {index + 1}
                         </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => updateTransaction(tx.id, "type", "Pemasukan")}
-                        activeOpacity={0.8}
-                        style={[
-                          styles.toggleBtn,
-                          tx.type === "Pemasukan" && styles.toggleActiveIncome,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.toggleText,
-                            tx.type === "Pemasukan" && styles.toggleActiveText,
-                          ]}
-                        >
-                          Pemasukan
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Item Name */}
-                    <TextInput
-                      mode="outlined"
-                      label="Item / Deskripsi"
-                      value={tx.item}
-                      onChangeText={(val) => updateTransaction(tx.id, "item", val)}
-                      outlineColor="#E2E8F0"
-                      activeOutlineColor="#FF90BB"
-                      style={styles.formInput}
-                      outlineStyle={{ borderRadius: 12 }}
-                    />
-
-                    {/* Nominal */}
-                    <TextInput
-                      mode="outlined"
-                      label="Nominal"
-                      value={tx.nominal}
-                      onChangeText={(val) => updateTransaction(tx.id, "nominal", val)}
-                      keyboardType="numeric"
-                      left={<TextInput.Affix text="Rp " />}
-                      outlineColor="#E2E8F0"
-                      activeOutlineColor="#FF90BB"
-                      style={styles.formInput}
-                      outlineStyle={{ borderRadius: 12 }}
-                    />
-
-                    {/* Category Selection */}
-                    <Text style={styles.sectionLabel}>Kategori</Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.categoryScroll}
-                    >
-                      {txCategories.map((cat) => {
-                        const isSelected = tx.kategori === cat;
-                        return (
+                        {parsedTransactions.length > 1 && (
                           <TouchableOpacity
-                            key={cat}
-                            onPress={() => updateTransaction(tx.id, "kategori", cat)}
-                            activeOpacity={0.8}
+                            onPress={() => removeTransaction(tx.id)}
+                            style={styles.txRemoveBtn}
+                          >
+                            <Ionicons
+                              name="trash-outline"
+                              size={18}
+                              color="#EF4444"
+                            />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+
+                      {/* Type selector */}
+                      <View style={styles.rowToggles}>
+                        <TouchableOpacity
+                          onPress={() =>
+                            updateTransaction(tx.id, "type", "Pengeluaran")
+                          }
+                          activeOpacity={0.8}
+                          style={[
+                            styles.toggleBtn,
+                            tx.type === "Pengeluaran" &&
+                              styles.toggleActiveExpense,
+                          ]}
+                        >
+                          <Text
                             style={[
-                              styles.categoryChip,
-                              isSelected && styles.categoryChipSelected,
+                              styles.toggleText,
+                              tx.type === "Pengeluaran" &&
+                                styles.toggleActiveText,
                             ]}
                           >
-                            <Text
+                            Pengeluaran
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() =>
+                            updateTransaction(tx.id, "type", "Pemasukan")
+                          }
+                          activeOpacity={0.8}
+                          style={[
+                            styles.toggleBtn,
+                            tx.type === "Pemasukan" &&
+                              styles.toggleActiveIncome,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.toggleText,
+                              tx.type === "Pemasukan" &&
+                                styles.toggleActiveText,
+                            ]}
+                          >
+                            Pemasukan
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* Item Name */}
+                      <TextInput
+                        mode="outlined"
+                        label="Item / Deskripsi"
+                        value={tx.item}
+                        onChangeText={(val) =>
+                          updateTransaction(tx.id, "item", val)
+                        }
+                        outlineColor="#E2E8F0"
+                        activeOutlineColor="#FF90BB"
+                        style={styles.formInput}
+                        outlineStyle={{ borderRadius: 12 }}
+                      />
+
+                      {/* Nominal */}
+                      <TextInput
+                        mode="outlined"
+                        label="Nominal"
+                        value={tx.nominal}
+                        onChangeText={(val) =>
+                          updateTransaction(tx.id, "nominal", val)
+                        }
+                        keyboardType="numeric"
+                        left={<TextInput.Affix text="Rp " />}
+                        outlineColor="#E2E8F0"
+                        activeOutlineColor="#FF90BB"
+                        style={styles.formInput}
+                        outlineStyle={{ borderRadius: 12 }}
+                      />
+
+                      {/* Category Selection */}
+                      <Text style={styles.sectionLabel}>Kategori</Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        style={styles.categoryScroll}
+                      >
+                        {txCategories.map((cat) => {
+                          const isSelected = tx.kategori === cat;
+                          return (
+                            <TouchableOpacity
+                              key={cat}
+                              onPress={() =>
+                                updateTransaction(tx.id, "kategori", cat)
+                              }
+                              activeOpacity={0.8}
                               style={[
-                                styles.chipText,
-                                isSelected && styles.chipTextSelected,
+                                styles.categoryChip,
+                                isSelected && styles.categoryChipSelected,
                               ]}
                             >
-                              {cat}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
+                              <Text
+                                style={[
+                                  styles.chipText,
+                                  isSelected && styles.chipTextSelected,
+                                ]}
+                              >
+                                {cat}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
 
-                    {/* Payment Method */}
-                    <Text style={styles.sectionLabel}>Metode Pembayaran</Text>
-                    <View style={styles.payToggles}>
-                      <TouchableOpacity
-                        onPress={() => updateTransaction(tx.id, "pembayaran", "Cash")}
-                        activeOpacity={0.8}
-                        style={[
-                          styles.payBtn,
-                          tx.pembayaran === "Cash" && styles.payBtnActive,
-                        ]}
-                      >
-                        <Text
+                      {/* Payment Method */}
+                      <Text style={styles.sectionLabel}>Metode Pembayaran</Text>
+                      <View style={styles.payToggles}>
+                        <TouchableOpacity
+                          onPress={() =>
+                            updateTransaction(tx.id, "pembayaran", "Cash")
+                          }
+                          activeOpacity={0.8}
                           style={[
-                            styles.payText,
-                            tx.pembayaran === "Cash" && styles.payTextActive,
+                            styles.payBtn,
+                            tx.pembayaran === "Cash" && styles.payBtnActive,
                           ]}
                         >
-                          Tunai / Debit
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => updateTransaction(tx.id, "pembayaran", "Paylater")}
-                        activeOpacity={0.8}
-                        style={[
-                          styles.payBtn,
-                          tx.pembayaran === "Paylater" && styles.payBtnActive,
-                        ]}
-                      >
-                        <Text
+                          <Text
+                            style={[
+                              styles.payText,
+                              tx.pembayaran === "Cash" && styles.payTextActive,
+                            ]}
+                          >
+                            Tunai / Debit
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() =>
+                            updateTransaction(tx.id, "pembayaran", "Paylater")
+                          }
+                          activeOpacity={0.8}
                           style={[
-                            styles.payText,
-                            tx.pembayaran === "Paylater" && styles.payTextActive,
+                            styles.payBtn,
+                            tx.pembayaran === "Paylater" && styles.payBtnActive,
                           ]}
                         >
-                          Paylater
-                        </Text>
-                      </TouchableOpacity>
+                          <Text
+                            style={[
+                              styles.payText,
+                              tx.pembayaran === "Paylater" &&
+                                styles.payTextActive,
+                            ]}
+                          >
+                            Paylater
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* Notes (Optional) */}
+                      <TextInput
+                        mode="outlined"
+                        label="Catatan (Opsional)"
+                        value={tx.catatan}
+                        onChangeText={(val) =>
+                          updateTransaction(tx.id, "catatan", val)
+                        }
+                        multiline
+                        outlineColor="#E2E8F0"
+                        activeOutlineColor="#FF90BB"
+                        style={[styles.formInput, { minHeight: 60 }]}
+                        outlineStyle={{ borderRadius: 12 }}
+                      />
                     </View>
+                  );
+                })}
 
-                    {/* Notes (Optional) */}
-                    <TextInput
-                      mode="outlined"
-                      label="Catatan (Opsional)"
-                      value={tx.catatan}
-                      onChangeText={(val) => updateTransaction(tx.id, "catatan", val)}
-                      multiline
-                      outlineColor="#E2E8F0"
-                      activeOutlineColor="#FF90BB"
-                      style={[styles.formInput, { minHeight: 60 }]}
-                      outlineStyle={{ borderRadius: 12 }}
-                    />
-                  </View>
-                );
-              })}
-
-              {/* Form Buttons */}
-              <View style={styles.buttonRow}>
-                <Button
-                  mode="outlined"
-                  onPress={resetAll}
-                  style={[styles.cancelBtn, { borderColor: "#CBD5E1" }]}
-                  textColor="#64748B"
-                >
-                  Ulangi
-                </Button>
-                <Button
-                  mode="contained"
-                  onPress={handleSaveParsed}
-                  style={styles.saveBtn}
-                  labelStyle={styles.saveBtnLabel}
-                >
-                  Simpan Transaksi
-                </Button>
-              </View>
-            </ScrollView>
+                {/* Form Buttons */}
+                <View style={styles.buttonRow}>
+                  <Button
+                    mode="outlined"
+                    onPress={resetAll}
+                    style={[styles.cancelBtn, { borderColor: "#CBD5E1" }]}
+                    textColor="#64748B"
+                  >
+                    Ulangi
+                  </Button>
+                  <Button
+                    mode="contained"
+                    onPress={handleSaveParsed}
+                    style={styles.saveBtn}
+                    labelStyle={styles.saveBtnLabel}
+                  >
+                    Simpan Transaksi
+                  </Button>
+                </View>
+              </ScrollView>
             </View>
           )}
 
@@ -1114,15 +1358,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 12,
   },
-  orbContainer: {
-    width: 120,
-    height: 120,
+  centerWaveRow: {
+    // kept for backward compat if referenced elsewhere
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    height: 140,
+    gap: 8,
+  },
+  waveformSide: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 60,
+    gap: 4,
+  },
+  orbWrapper: {
+    width: 140,
+    height: 140,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 12,
     position: "relative",
-    // FIX Bug #5: zIndex pada container agar stacking context jelas
-    zIndex: 10,
+    marginVertical: 8,
+  },
+  waveformContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    height: 70,
+    paddingHorizontal: 16,
+    gap: 3,
+    marginBottom: 8,
   },
   orbPressable: {
     zIndex: 10,
@@ -1130,88 +1398,115 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   voiceOrb: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#FF90BB", // Primary
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: "#FF7096",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#FF90BB",
+    shadowColor: "#FF7096",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowRadius: 16,
+    elevation: 10,
   },
   orbPulseRing: {
     position: "absolute",
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: "#FFC1DA", // Secondary
-    backgroundColor: "rgba(255, 193, 218, 0.35)",
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 1.5,
+    borderColor: "#FFC1DA",
+    backgroundColor: "rgba(255, 193, 218, 0.15)",
     zIndex: 1,
   },
   assistantStatus: {
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 18,
-    color: "#1E293B",
+    fontFamily: "Poppins_700Bold",
+    fontSize: 20,
+    color: "#273240",
     textAlign: "center",
-    marginBottom: 4,
+    marginBottom: 8,
+    marginTop: 8,
   },
   assistantHint: {
     fontFamily: "Poppins_400Regular",
-    fontSize: 12,
-    color: "#64748B",
+    fontSize: 14,
+    color: "#7F8E9C",
     textAlign: "center",
-    marginBottom: 12,
-    paddingHorizontal: 24,
-    lineHeight: 18,
-  },
-  timerBadge: {
-    backgroundColor: "#FFF0F5",
-    borderWidth: 1.5,
-    borderColor: "#FF90BB",
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 4,
     marginBottom: 16,
-    shadowColor: "#FF90BB",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    lineHeight: 20,
   },
-  timerBadgeText: {
-    fontFamily: "Poppins_700Bold",
-    fontSize: 12,
-    color: "#FF90BB",
+  durationTimerText: {
+    fontFamily: "Poppins_500Medium",
+    fontSize: 16,
+    color: "#7F8E9C",
+    textAlign: "center",
+    marginTop: 8,
+    marginBottom: 16,
   },
-  waveformContainer: {
+  statusCapsule: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  statusCapsuleListening: {
+    borderColor: "rgba(16, 185, 129, 0.2)",
+    backgroundColor: "rgba(16, 185, 129, 0.05)",
+  },
+  statusCapsuleIdle: {
+    borderColor: "#E2E8F0",
+    backgroundColor: "#F8FAFC",
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  statusCapsuleText: {
+    fontFamily: "Poppins_500Medium",
+    fontSize: 13,
+  },
+  cancelBtnCapsule: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    height: 60,
-    gap: 4,
-    marginBottom: 20,
-    width: "100%",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 24,
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    marginTop: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  waveformPlaceholder: {
-    height: 60,
-    marginBottom: 20,
+  cancelBtnCapsuleText: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 14,
+    color: "#FF7096",
   },
   waveBar: {
-    width: 5,
-    borderRadius: 2.5,
+    width: 4,
+    borderRadius: 3,
+    minHeight: 4,
   },
   stopCircleBtn: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: "#FF90BB",
+    backgroundColor: "#FF7096",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#FF90BB",
+    shadowColor: "#FF7096",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,

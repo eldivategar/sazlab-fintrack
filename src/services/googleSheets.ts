@@ -103,8 +103,8 @@ export async function initializeHeaders(token: string, spreadsheetId: string): P
     const body = {
       values: [
         ['Tanggal', 'Kategori', 'Keterangan / Item', 'Nominal', 'Pembayaran', 'Catatan', 'Sumber Input'],
-        ['', '', 'Total Budget Cash', 4000000, '', 'Jangan diubah (Budget Bulanan Cash)', ''],
-        ['', '', 'Total Budget Paylater', 2500000, '', 'Jangan diubah (Budget Bulanan Paylater)', ''],
+        ['', '', 'Total Budget Cash', 0, '', 'Jangan diubah (Budget Bulanan Cash)', ''],
+        ['', '', 'Total Budget Paylater', 0, '', 'Jangan diubah (Budget Bulanan Paylater)', ''],
         ['', '', 'Sisa Saldo Cash', '=D2-SUMIF(E8:E;"Cash";D8:D)', '', 'Rumus Otomatis (Sisa Saldo Cash = Total Budget Cash - Pengeluaran Cash)', ''],
         ['', '', 'Sisa Saldo Paylater', '=D3-SUMIF(E8:E;"Paylater";D8:D)', '', 'Rumus Otomatis (Sisa Saldo Paylater = Total Budget Paylater - Pengeluaran Paylater)', ''],
         ['', '', 'Total Sisa Saldo', '=D4+D5', '', 'Rumus Otomatis (Total Sisa Saldo = Sisa Saldo Cash + Sisa Saldo Paylater)', ''],
@@ -248,6 +248,51 @@ export async function getTransactionRows(token: string, spreadsheetId: string): 
 }
 
 /**
+ * Updates the budget values in the 'Transaksi' sheet.
+ * @param token Google OAuth2 Access Token
+ * @param spreadsheetId Google Spreadsheet ID
+ * @param cashBudget The new cash budget
+ * @param paylaterBudget The new paylater budget
+ */
+export async function updateBudgets(
+  token: string,
+  spreadsheetId: string,
+  cashBudget: number,
+  paylaterBudget: number
+): Promise<void> {
+  try {
+    const range = 'Transaksi!D2:D3';
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+    const body = {
+      values: [
+        [cashBudget],
+        [paylaterBudget],
+      ],
+    };
+
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new GoogleApiError('UNAUTHORIZED', 401);
+      }
+      const errText = await response.text();
+      throw new GoogleApiError(`Failed to update budgets: ${errText}`, response.status);
+    }
+  } catch (error) {
+    console.error('Error in updateBudgets:', error);
+    throw error;
+  }
+}
+
+/**
  * Deletes a row in Google Sheets by its 0-indexed row number.
  * Uses batchUpdate dimension deletion.
  * @param token Google OAuth2 Access Token
@@ -294,6 +339,49 @@ export async function deleteTransactionRow(
     }
   } catch (error) {
     console.error('Error in deleteTransactionRow:', error);
+    throw error;
+  }
+}
+
+/**
+ * Clears all transaction data and resets the budget to 0.
+ * @param token Google OAuth2 Access Token
+ * @param spreadsheetId Google Spreadsheet ID
+ * @param isNewTemplate Boolean indicating if it's the new template structure
+ */
+export async function clearAllTransactions(
+  token: string,
+  spreadsheetId: string,
+  isNewTemplate: boolean
+): Promise<void> {
+  try {
+    const startRow = isNewTemplate ? 8 : 7;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`;
+    const body = {
+      ranges: [`Transaksi!A${startRow}:G`, 'Transaksi!D2:D3'],
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new GoogleApiError('UNAUTHORIZED', 401);
+      }
+      const errText = await response.text();
+      throw new GoogleApiError(`Failed to clear transactions: ${errText}`, response.status);
+    }
+    
+    // Also reset budget cells to 0
+    await updateBudgets(token, spreadsheetId, 0, 0);
+  } catch (error) {
+    console.error('Error in clearAllTransactions:', error);
     throw error;
   }
 }

@@ -7,6 +7,8 @@ import {
   appendTransactionRow,
   getTransactionRows,
   deleteTransactionRow,
+  updateBudgets,
+  clearAllTransactions,
   GoogleApiError 
 } from '../services/googleSheets';
 import { useAuthStore } from './useAuthStore';
@@ -49,10 +51,12 @@ interface SheetState {
   totalSisaSaldo: number | null;
   isTemplateFormat: boolean;
   isNewTemplate: boolean;
-  initializeSheet: (token: string) => Promise<void>;
-  fetchTransactions: (token: string) => Promise<void>;
-  addTransaction: (token: string, transaction: TransactionInput) => Promise<void>;
-  deleteTransaction: (token: string, sheetRowIndex: number) => Promise<void>;
+  initializeSheet: (token: string, isRetry?: boolean) => Promise<void>;
+  fetchTransactions: (token: string, isRetry?: boolean) => Promise<void>;
+  addTransaction: (token: string, transaction: TransactionInput, isRetry?: boolean) => Promise<void>;
+  deleteTransaction: (token: string, sheetRowIndex: number, isRetry?: boolean) => Promise<void>;
+  updateStoreBudgets: (token: string, cashBudget: number, paylaterBudget: number, isRetry?: boolean) => Promise<void>;
+  resetAllData: (token: string, isRetry?: boolean) => Promise<void>;
   reset: () => void;
 }
 
@@ -99,7 +103,7 @@ export const useSheetStore = create<SheetState>((set, get) => ({
   isTemplateFormat: false,
   isNewTemplate: false,
 
-  initializeSheet: async (token: string) => {
+  initializeSheet: async (token: string, isRetry?: boolean) => {
     set({ status: 'initializing', error: null });
     try {
       // 1. Get cached ID from SecureStore
@@ -156,7 +160,11 @@ export const useSheetStore = create<SheetState>((set, get) => ({
     } catch (err: any) {
       console.error('Failed to initialize Google Sheet:', err);
       
-      if (err instanceof GoogleApiError && err.status === 401) {
+      if (err instanceof GoogleApiError && err.status === 401 && !isRetry) {
+        const newToken = await useAuthStore.getState().refreshToken();
+        if (newToken) {
+          return get().initializeSheet(newToken, true);
+        }
         set({ status: 'error', error: 'Session expired. Please log in again.' });
         await useAuthStore.getState().logout();
       } else {
@@ -165,7 +173,7 @@ export const useSheetStore = create<SheetState>((set, get) => ({
     }
   },
 
-  fetchTransactions: async (token: string) => {
+  fetchTransactions: async (token: string, isRetry?: boolean) => {
     const { spreadsheetId } = get();
     if (!spreadsheetId) return;
 
@@ -219,14 +227,18 @@ export const useSheetStore = create<SheetState>((set, get) => ({
       });
     } catch (err: any) {
       console.error('Failed to fetch transactions:', err);
-      set({ isLoadingTransactions: false });
-      if (err instanceof GoogleApiError && err.status === 401) {
+      if (err instanceof GoogleApiError && err.status === 401 && !isRetry) {
+        const newToken = await useAuthStore.getState().refreshToken();
+        if (newToken) {
+          return get().fetchTransactions(newToken, true);
+        }
         await useAuthStore.getState().logout();
       }
+      set({ isLoadingTransactions: false, status: 'error', error: err.message });
     }
   },
 
-  addTransaction: async (token: string, transaction: TransactionInput) => {
+  addTransaction: async (token: string, transaction: TransactionInput, isRetry?: boolean) => {
     const { spreadsheetId, isTemplateFormat, isNewTemplate } = get();
     if (!spreadsheetId) {
       throw new Error('Database is not initialized.');
@@ -254,14 +266,18 @@ export const useSheetStore = create<SheetState>((set, get) => ({
       await get().fetchTransactions(token);
     } catch (err: any) {
       console.error('Failed to add transaction:', err);
-      if (err instanceof GoogleApiError && err.status === 401) {
+      if (err instanceof GoogleApiError && err.status === 401 && !isRetry) {
+        const newToken = await useAuthStore.getState().refreshToken();
+        if (newToken) {
+          return get().addTransaction(newToken, transaction, true);
+        }
         await useAuthStore.getState().logout();
       }
       throw err;
     }
   },
 
-  deleteTransaction: async (token: string, sheetRowIndex: number) => {
+  deleteTransaction: async (token: string, sheetRowIndex: number, isRetry?: boolean) => {
     const { spreadsheetId } = get();
     if (!spreadsheetId) {
       throw new Error('Database is not initialized.');
@@ -272,7 +288,57 @@ export const useSheetStore = create<SheetState>((set, get) => ({
       await get().fetchTransactions(token);
     } catch (err: any) {
       console.error('Failed to delete transaction:', err);
-      if (err instanceof GoogleApiError && err.status === 401) {
+      if (err instanceof GoogleApiError && err.status === 401 && !isRetry) {
+        const newToken = await useAuthStore.getState().refreshToken();
+        if (newToken) {
+          return get().deleteTransaction(newToken, sheetRowIndex, true);
+        }
+        await useAuthStore.getState().logout();
+      }
+      throw err;
+    }
+  },
+
+  updateStoreBudgets: async (token: string, cashBudget: number, paylaterBudget: number, isRetry?: boolean) => {
+    const { spreadsheetId } = get();
+    if (!spreadsheetId) {
+      throw new Error('Database is not initialized.');
+    }
+
+    try {
+      await updateBudgets(token, spreadsheetId, cashBudget, paylaterBudget);
+      // Refresh transactions to re-calculate Sisa Saldo automatically using Google Sheets logic
+      await get().fetchTransactions(token);
+    } catch (err: any) {
+      console.error('Failed to update budgets:', err);
+      if (err instanceof GoogleApiError && err.status === 401 && !isRetry) {
+        const newToken = await useAuthStore.getState().refreshToken();
+        if (newToken) {
+          return get().updateStoreBudgets(newToken, cashBudget, paylaterBudget, true);
+        }
+        await useAuthStore.getState().logout();
+      }
+      throw err;
+    }
+  },
+
+  resetAllData: async (token: string, isRetry?: boolean) => {
+    const { spreadsheetId, isNewTemplate } = get();
+    if (!spreadsheetId) {
+      throw new Error('Database is not initialized.');
+    }
+
+    try {
+      await clearAllTransactions(token, spreadsheetId, isNewTemplate);
+      // Refresh transactions after clear
+      await get().fetchTransactions(token);
+    } catch (err: any) {
+      console.error('Failed to reset data:', err);
+      if (err instanceof GoogleApiError && err.status === 401 && !isRetry) {
+        const newToken = await useAuthStore.getState().refreshToken();
+        if (newToken) {
+          return get().resetAllData(newToken, true);
+        }
         await useAuthStore.getState().logout();
       }
       throw err;

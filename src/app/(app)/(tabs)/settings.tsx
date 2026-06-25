@@ -32,10 +32,185 @@ import ScreenTransition from "../../../components/ScreenTransition";
 import AnimatedCard from "../../../components/AnimatedCard";
 import { Ionicons } from "@expo/vector-icons";
 import GoogleLogo from "../../../components/GoogleLogo";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  runOnJS,
+} from "react-native-reanimated";
+
+interface BudgetBottomSheetProps {
+  visible: boolean;
+  onDismiss: () => void;
+  onSave: (cash: number, paylater: number) => Promise<void>;
+  initialCash: string;
+  initialPaylater: string;
+}
+
+function BudgetBottomSheet({
+  visible,
+  onDismiss,
+  onSave,
+  initialCash,
+  initialPaylater,
+}: BudgetBottomSheetProps) {
+  const [cashInput, setCashInput] = useState(initialCash);
+  const [paylaterInput, setPaylaterInput] = useState(initialPaylater);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setCashInput(initialCash);
+      setPaylaterInput(initialPaylater);
+      setErrorMsg(null);
+    }
+  }, [visible, initialCash, initialPaylater]);
+
+  const animatedValue = useSharedValue(0);
+  const [shouldRender, setShouldRender] = useState(visible);
+
+  useEffect(() => {
+    if (visible) {
+      setShouldRender(true);
+      animatedValue.value = withSpring(1, {
+        damping: 20,
+        stiffness: 180,
+        mass: 0.8,
+      });
+    } else {
+      animatedValue.value = withTiming(0, { duration: 220 }, (finished) => {
+        if (finished) {
+          runOnJS(setShouldRender)(false);
+        }
+      });
+    }
+  }, [visible]);
+
+  const handleSave = async () => {
+    const cash = parseInt(cashInput, 10);
+    const paylater = paylaterInput ? parseInt(paylaterInput, 10) : 0;
+    
+    if (isNaN(cash) || cash < 0) {
+      setErrorMsg("Budget tunai harus berupa angka positif.");
+      return;
+    }
+    if (isNaN(paylater) || paylater < 0) {
+      setErrorMsg("Budget paylater harus berupa angka positif.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await onSave(cash, paylater);
+      onDismiss();
+    } catch (err) {
+      setErrorMsg("Gagal menyimpan budget.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const backdropAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: animatedValue.value,
+  }));
+
+  const screenHeight = useWindowDimensions().height;
+  const sheetAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: (1 - animatedValue.value) * screenHeight }],
+    };
+  });
+
+  if (!shouldRender) return null;
+
+  return (
+    <Portal>
+      <View style={StyleSheet.absoluteFill}>
+        {/* Backdrop */}
+        <Animated.View style={[styles.backdrop, backdropAnimatedStyle]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => !isSaving && onDismiss()} />
+        </Animated.View>
+
+        {/* Sheet */}
+        <Animated.View style={[styles.sheetContainer, sheetAnimatedStyle]}>
+          <View style={styles.sheetIndicator} />
+
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Atur Anggaran</Text>
+            <Pressable onPress={() => !isSaving && onDismiss()} style={styles.closeBtn}>
+              <Ionicons name="close" size={20} color="#1E293B" />
+            </Pressable>
+          </View>
+
+          <Text style={styles.sheetSubtitle}>
+            Tentukan limit anggaran bulananmu.
+          </Text>
+
+          {errorMsg && <Text style={styles.modalError}>{errorMsg}</Text>}
+
+          <View style={{ width: '100%', marginBottom: 16 }}>
+            <Text style={styles.timeInputLabel}>Budget Tunai</Text>
+            <TextInput
+              mode="outlined"
+              value={cashInput}
+              onChangeText={setCashInput}
+              keyboardType="numeric"
+              style={{ backgroundColor: '#FFFFFF', marginTop: 8 }}
+              activeOutlineColor="#FF90BB"
+              outlineColor="#CBD5E1"
+              outlineStyle={{ borderRadius: 12 }}
+              left={<TextInput.Affix text="Rp " />}
+            />
+          </View>
+
+          <View style={{ width: '100%', marginBottom: 24 }}>
+            <Text style={styles.timeInputLabel}>Budget Paylater (Opsional)</Text>
+            <TextInput
+              mode="outlined"
+              value={paylaterInput}
+              onChangeText={setPaylaterInput}
+              keyboardType="numeric"
+              style={{ backgroundColor: '#FFFFFF', marginTop: 8 }}
+              activeOutlineColor="#FF90BB"
+              outlineColor="#CBD5E1"
+              outlineStyle={{ borderRadius: 12 }}
+              left={<TextInput.Affix text="Rp " />}
+              placeholder="0"
+            />
+          </View>
+
+          <View style={styles.modalButtons}>
+            <Button
+              mode="outlined"
+              onPress={() => onDismiss()}
+              style={[styles.modalCancel, { borderColor: "#CBD5E1" }]}
+              textColor="#64748B"
+              disabled={isSaving}
+            >
+              Batal
+            </Button>
+            <Button
+              mode="contained"
+              onPress={handleSave}
+              style={styles.modalSave}
+              textColor="#FFFFFF"
+              loading={isSaving}
+              disabled={isSaving}
+            >
+              Simpan
+            </Button>
+          </View>
+        </Animated.View>
+      </View>
+    </Portal>
+  );
+}
 
 export default function SettingsScreen() {
-  const { user, logout } = useAuthStore();
-  const { spreadsheetId } = useSheetStore();
+  const { user, token, logout } = useAuthStore();
+  const { spreadsheetId, totalBudgetCash, budgetPaylater, updateStoreBudgets, resetAllData } = useSheetStore();
   const segments = useSegments() as any;
   const isFocused = segments.includes("settings");
   const {
@@ -53,6 +228,14 @@ export default function SettingsScreen() {
   const [hourInput, setHourInput] = useState("20");
   const [minuteInput, setMinuteInput] = useState("00");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const [isBudgetModalVisible, setIsBudgetModalVisible] = useState(false);
+  const [cashBudgetInput, setCashBudgetInput] = useState("");
+  const [paylaterBudgetInput, setPaylaterBudgetInput] = useState("");
+  const [isSavingBudget, setIsSavingBudget] = useState(false);
+
+  const [isResetModalVisible, setIsResetModalVisible] = useState(false);
+  const [isResettingData, setIsResettingData] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -84,6 +267,38 @@ export default function SettingsScreen() {
 
     await updateReminder(reminderEnabled, hr, min);
     setIsTimeModalVisible(false);
+  };
+
+  const handleOpenBudgetModal = () => {
+    setCashBudgetInput(totalBudgetCash !== null ? String(totalBudgetCash) : "0");
+    setPaylaterBudgetInput(budgetPaylater !== null ? String(budgetPaylater) : "");
+    setErrorMsg(null);
+    setIsBudgetModalVisible(true);
+  };
+
+  const handleSaveBudget = async (cash: number, paylater: number) => {
+    if (token) {
+      await updateStoreBudgets(token, cash, paylater);
+    }
+  };
+
+  const handleOpenResetModal = () => {
+    setIsResetModalVisible(true);
+  };
+
+  const handleConfirmReset = async () => {
+    setIsResettingData(true);
+    try {
+      if (token) {
+        await resetAllData(token);
+      }
+      setIsResetModalVisible(false);
+      Alert.alert("Sukses", "Seluruh data telah di-reset dan dimulai dari awal.");
+    } catch (err) {
+      Alert.alert("Error", "Gagal melakukan reset data.");
+    } finally {
+      setIsResettingData(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -245,6 +460,63 @@ export default function SettingsScreen() {
             )}
           </AnimatedCard>
 
+          {/* Budget Settings */}
+          <AnimatedCard
+            index={2.5}
+            triggerKey={String(isFocused)}
+            style={styles.settingsSection}
+          >
+            <Text style={styles.sectionTitle}>Anggaran Bulanan</Text>
+            <View style={styles.settingsCard}>
+              <View style={styles.settingRow}>
+                <View
+                  style={[styles.iconCircle, { backgroundColor: "#E6F7F9" }]}
+                >
+                  <Ionicons name="wallet" size={20} color="#8ACCD5" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingLabel}>Atur Anggaran</Text>
+                  <Text style={styles.settingDesc}>
+                    Atur limit budget bulananmu
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={handleOpenBudgetModal}
+                  style={({ pressed }) => [
+                    styles.outlineBtn,
+                    pressed && { backgroundColor: "#F0FDFA" },
+                  ]}
+                >
+                  <Ionicons
+                    name="create-outline"
+                    size={14}
+                    color="#8ACCD5"
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text style={styles.outlineBtnText}>Ubah</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.timePickerRow}>
+                <Text style={styles.timeLabel}>Budget Tunai</Text>
+                <View style={styles.timeBadge}>
+                  <Text style={styles.timeBadgeText}>
+                    Rp {totalBudgetCash?.toLocaleString('id-ID') || '0'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.timePickerRow}>
+                <Text style={styles.timeLabel}>Budget Paylater</Text>
+                <View style={styles.timeBadge}>
+                  <Text style={styles.timeBadgeText}>
+                    Rp {budgetPaylater ? budgetPaylater.toLocaleString('id-ID') : '0'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </AnimatedCard>
+
           {/* Database Settings */}
           <AnimatedCard
             index={3}
@@ -349,9 +621,43 @@ export default function SettingsScreen() {
             </View>
           </AnimatedCard>
 
-          {/* App Info & Sign Out */}
+          {/* Danger Zone */}
           <AnimatedCard
             index={4}
+            triggerKey={String(isFocused)}
+            style={styles.settingsSection}
+          >
+            <Text style={[styles.sectionTitle, { color: '#EF4444' }]}>Zona Bahaya</Text>
+            <View style={[styles.settingsCard, { borderColor: '#FEE2E2', borderWidth: 1 }]}>
+              <View style={styles.settingRow}>
+                <View
+                  style={[styles.iconCircle, { backgroundColor: "#FEF2F2" }]}
+                >
+                  <Ionicons name="warning" size={20} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.settingLabel, { color: '#B91C1C' }]}>Reset Data</Text>
+                  <Text style={styles.settingDesc}>
+                    Hapus seluruh data transaksi dan mulai dari awal
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={handleOpenResetModal}
+                  style={({ pressed }) => [
+                    styles.outlineBtn,
+                    { borderColor: '#EF4444' },
+                    pressed && { backgroundColor: "#FEF2F2" },
+                  ]}
+                >
+                  <Text style={[styles.outlineBtnText, { color: '#EF4444' }]}>Reset</Text>
+                </Pressable>
+              </View>
+            </View>
+          </AnimatedCard>
+
+          {/* App Info & Sign Out */}
+          <AnimatedCard
+            index={5}
             triggerKey={String(isFocused)}
             style={styles.bottomSection}
           >
@@ -371,7 +677,11 @@ export default function SettingsScreen() {
               <Text style={styles.signOutButtonText}>Keluar</Text>
             </Pressable>
             <Text style={styles.appVersion}>SiPaling Hemat v1.0.0</Text>
-            <Text style={styles.thankYouText}>Made with ❤️ by Sazlab</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 6 }}>
+              <Text style={[styles.thankYouText, { marginTop: 0 }]}>Made with </Text>
+              <Text style={{ fontSize: 10 }}>❤️</Text>
+              <Text style={[styles.thankYouText, { marginTop: 0 }]}> by Sazlab</Text>
+            </View>
           </AnimatedCard>
         </ScrollView>
       </ScreenTransition>
@@ -438,6 +748,51 @@ export default function SettingsScreen() {
               textColor="#FFFFFF"
             >
               Simpan
+            </Button>
+          </View>
+        </Modal>
+
+        <BudgetBottomSheet
+          visible={isBudgetModalVisible}
+          onDismiss={() => setIsBudgetModalVisible(false)}
+          onSave={handleSaveBudget}
+          initialCash={totalBudgetCash !== null ? String(totalBudgetCash) : "0"}
+          initialPaylater={budgetPaylater !== null ? String(budgetPaylater) : ""}
+        />
+
+        {/* Reset Confirmation Modal */}
+        <Modal
+          visible={isResetModalVisible}
+          onDismiss={() => !isResettingData && setIsResetModalVisible(false)}
+          contentContainerStyle={styles.modalContent}
+        >
+          <View style={[styles.iconCircle, { backgroundColor: '#FEF2F2', width: 56, height: 56, borderRadius: 28, marginBottom: 16 }]}>
+            <Ionicons name="warning" size={28} color="#EF4444" />
+          </View>
+          <Text style={[styles.modalTitle, { color: '#B91C1C' }]}>Reset Seluruh Data?</Text>
+          <Text style={styles.modalSubtitle}>
+            Tindakan ini akan menghapus semua riwayat transaksi Anda secara permanen dan mereset budget. Apakah Anda yakin ingin memulai dari awal?
+          </Text>
+
+          <View style={styles.modalButtons}>
+            <Button
+              mode="outlined"
+              onPress={() => setIsResetModalVisible(false)}
+              style={[styles.modalCancel, { borderColor: "#CBD5E1" }]}
+              textColor="#64748B"
+              disabled={isResettingData}
+            >
+              Batal
+            </Button>
+            <Button
+              mode="contained"
+              onPress={handleConfirmReset}
+              style={[styles.modalSave, { backgroundColor: '#EF4444' }]}
+              textColor="#FFFFFF"
+              loading={isResettingData}
+              disabled={isResettingData}
+            >
+              Reset Data
             </Button>
           </View>
         </Modal>
@@ -845,5 +1200,60 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FF90BB",
     borderRadius: 12,
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+  },
+  sheetContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 34,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 15,
+    elevation: 20,
+  },
+  sheetIndicator: {
+    width: 48,
+    height: 4,
+    backgroundColor: "#E2E8F0",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 20,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  sheetTitle: {
+    fontFamily: "Poppins_700Bold",
+    fontSize: 18,
+    color: "#1E293B",
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F1F5F9",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  sheetSubtitle: {
+    fontFamily: "Poppins_400Regular",
+    fontSize: 12,
+    color: "#64748B",
+    marginBottom: 20,
+    lineHeight: 18,
   },
 });

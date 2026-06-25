@@ -66,6 +66,10 @@ Rules:
 - If multiple items have different amounts, create separate transactions.
 - If payment method is only mentioned once at the end, apply it to all preceding transactions.
 - Default payment method = Cash.
+- The "kategori" MUST strictly be one of the following exact strings:
+  For Pengeluaran: "Makanan & Minuman", "Transportasi", "Belanja", "Tagihan & Utilitas", "Hiburan", "Lainnya"
+  For Pemasukan: "Gaji", "Investasi", "Sampingan", "Hadiah", "Lainnya"
+- If you are unsure about the category, use "Lainnya".
 - Return ONLY JSON.
 `;
 
