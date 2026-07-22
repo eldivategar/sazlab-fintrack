@@ -7,3 +7,12 @@
   --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
 }
+
+/* Remove default focus outline ring on web inputs & textareas */
+input:focus,
+textarea:focus,
+[contenteditable]:focus,
+[data-focusable]:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}

@@ -9,6 +9,7 @@ import {
   deleteTransactionRow,
   updateBudgets,
   clearAllTransactions,
+  updateFormulasForIncome,
   GoogleApiError 
 } from '../services/googleSheets';
 import { useAuthStore } from './useAuthStore';
@@ -155,6 +156,8 @@ export const useSheetStore = create<SheetState>((set, get) => ({
       // Update state and load transactions
       if (activeSheetId) {
         set({ spreadsheetId: activeSheetId, status: 'ready' });
+        // Automatically migrate/update formulas for income without affecting transaction rows
+        await updateFormulasForIncome(token, activeSheetId);
         await get().fetchTransactions(token);
       }
     } catch (err: any) {

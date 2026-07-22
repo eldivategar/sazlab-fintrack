@@ -1,29 +1,31 @@
-import React, { useEffect, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter, useSegments } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { useEffect, useState } from "react";
 import {
-  StyleSheet,
-  View,
-  ScrollView,
   ActivityIndicator,
+  ImageBackground,
   Pressable,
   RefreshControl,
-  ImageBackground,
+  ScrollView,
+  StyleSheet,
+  View,
 } from "react-native";
-import { Text, Avatar } from "react-native-paper";
+import { Avatar, Text } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AiAssistantSheet from "../../../components/AiAssistantSheet";
+import AnimatedCard from "../../../components/AnimatedCard";
+import ScreenTransition from "../../../components/ScreenTransition";
 import { useAuthStore } from "../../../stores/useAuthStore";
 import { useSheetStore } from "../../../stores/useSheetStore";
 import { useUIStore } from "../../../stores/useUIStore";
-import { StatusBar } from "expo-status-bar";
-import { useRouter, useSegments } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
-import ScreenTransition from "../../../components/ScreenTransition";
-import AnimatedCard from "../../../components/AnimatedCard";
 
 export default function DashboardScreen() {
   const router = useRouter();
   const { user, token } = useAuthStore();
-  const { setVoiceSheetVisible } = useUIStore();
+  const { setVoiceSheetVisible, isAiAssistantVisible, setAiAssistantVisible } =
+    useUIStore();
   const segments = useSegments() as any;
   const isFocused =
     !segments.includes("history") &&
@@ -516,7 +518,11 @@ export default function DashboardScreen() {
                     </View>
                     <Text style={styles.heroGridLabel}>Cash (Tunai)</Text>
                   </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: '100%' }}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={{ width: "100%" }}
+                  >
                     <Text style={styles.heroGridValue}>
                       {formatRupiah(
                         sisaBudgetCash !== null ? sisaBudgetCash : 0,
@@ -536,7 +542,11 @@ export default function DashboardScreen() {
                     </View>
                     <Text style={styles.heroGridLabel}>Paylater</Text>
                   </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: '100%' }}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={{ width: "100%" }}
+                  >
                     <Text style={styles.heroGridValue}>
                       {formatRupiah(
                         sisaBudgetPaylater !== null ? sisaBudgetPaylater : 0,
@@ -598,7 +608,38 @@ export default function DashboardScreen() {
             </View>
           </AnimatedCard>
 
-          {/* Section 3: Quick Actions */}
+          {/* Section 3: AI Assistant Widget */}
+          <AnimatedCard index={5} triggerKey={String(isFocused)}>
+            <Pressable
+              onPress={() => setAiAssistantVisible(true)}
+              style={({ pressed }) => [
+                styles.aiWidgetCard,
+                pressed && { transform: [{ scale: 0.98 }] },
+              ]}
+            >
+              <LinearGradient
+                colors={["#FF90BB", "#FFC1DA"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.aiWidgetGradient}
+              >
+                <View style={styles.aiWidgetContent}>
+                  <View style={styles.aiWidgetIconBox}>
+                    <Ionicons name="sparkles" size={24} color="#FF90BB" />
+                  </View>
+                  <View style={styles.aiWidgetTextBox}>
+                    <Text style={styles.aiWidgetTitle}>Tanya SiPaling Eay</Text>
+                    <Text style={styles.aiWidgetDesc}>
+                      Analisis keuangan & saran pintar
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+                </View>
+              </LinearGradient>
+            </Pressable>
+          </AnimatedCard>
+
+          {/* Section 4: Quick Actions */}
           <AnimatedCard index={3} triggerKey={String(isFocused)}>
             <View style={styles.quickActions}>
               <Pressable
@@ -639,7 +680,7 @@ export default function DashboardScreen() {
             </View>
           </AnimatedCard>
 
-          {/* Section 4: Financial Insight Section */}
+          {/* Section 5: Financial Insight Section */}
           <AnimatedCard index={4} triggerKey={String(isFocused)}>
             <View style={styles.insightCard}>
               <View
@@ -660,9 +701,9 @@ export default function DashboardScreen() {
             </View>
           </AnimatedCard>
 
-          {/* Section 5: Recent Transactions */}
+          {/* Section 6: Recent Transactions */}
           <AnimatedCard
-            index={5}
+            index={6}
             triggerKey={String(isFocused)}
             style={{ flex: 1 }}
           >
@@ -738,6 +779,11 @@ export default function DashboardScreen() {
           </AnimatedCard>
         </ScrollView>
       </ScreenTransition>
+
+      <AiAssistantSheet
+        visible={isAiAssistantVisible}
+        onDismiss={() => setAiAssistantVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -1233,5 +1279,46 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     textAlign: "center",
     lineHeight: 18,
+  },
+  aiWidgetCard: {
+    marginHorizontal: 24,
+    marginBottom: 16,
+    borderRadius: 20,
+    shadowColor: "#FF90BB",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  aiWidgetGradient: {
+    borderRadius: 20,
+    padding: 16,
+  },
+  aiWidgetContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  aiWidgetIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  aiWidgetTextBox: {
+    flex: 1,
+  },
+  aiWidgetTitle: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 15,
+    color: "#FFFFFF",
+  },
+  aiWidgetDesc: {
+    fontFamily: "Poppins_400Regular",
+    fontSize: 12,
+    color: "#FFFFFF",
+    opacity: 0.9,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -10,11 +10,14 @@ import {
   TextInput as RNTextInput,
   Dimensions,
   Modal as RNModal,
+  PanResponder,
+  Platform,
 } from "react-native";
 import { Text, Portal } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuthStore } from "../../../stores/useAuthStore";
 import { useSheetStore, Transaction } from "../../../stores/useSheetStore";
+import { showToast } from "../../../stores/useUIStore";
 import { StatusBar } from "expo-status-bar";
 import {
   Swipeable,
@@ -490,6 +493,7 @@ const CATEGORY_CHIPS = [
   "Belanja",
   "Hiburan",
   "Tagihan",
+  "Lainnya",
 ];
 const PAYMENT_CHIPS = ["Semua", "Tunai", "Transfer", "Paylater", "E-Wallet"];
 
@@ -500,6 +504,7 @@ const CATEGORY_MAP: { [key: string]: string } = {
   Belanja: "Belanja",
   Hiburan: "Hiburan",
   Tagihan: "Tagihan & Utilitas",
+  Lainnya: "Lainnya",
 };
 
 const PAYMENT_MAP: { [key: string]: string } = {
@@ -570,11 +575,14 @@ function FilterBottomSheet({
   }, [visible, startDate, endDate, selectedCategory, selectedPayment]);
 
   const animatedValue = useSharedValue(0);
+  const dragY = useSharedValue(0);
   const [shouldRender, setShouldRender] = useState(visible);
+  const screenHeight = Dimensions.get("window").height;
 
   useEffect(() => {
     if (visible) {
       setShouldRender(true);
+      dragY.value = 0;
       animatedValue.value = withSpring(1, {
         damping: 20,
         stiffness: 180,
@@ -588,6 +596,27 @@ function FilterBottomSheet({
       });
     }
   }, [visible]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4,
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          dragY.value = gestureState.dy;
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 100 || gestureState.vy > 0.5) {
+          dragY.value = withTiming(screenHeight, { duration: 180 }, () => {
+            runOnJS(onDismiss)();
+          });
+        } else {
+          dragY.value = withSpring(0, { damping: 15 });
+        }
+      },
+    })
+  ).current;
 
   // Calendar Modal targets
   const [calendarTarget, setCalendarTarget] = useState<"start" | "end" | null>(
@@ -644,10 +673,11 @@ function FilterBottomSheet({
     opacity: animatedValue.value,
   }));
 
-  const screenHeight = Dimensions.get("window").height;
   const sheetAnimatedStyle = useAnimatedStyle(() => {
     return {
-      transform: [{ translateY: (1 - animatedValue.value) * screenHeight }],
+      transform: [
+        { translateY: (1 - animatedValue.value) * screenHeight + dragY.value },
+      ],
     };
   });
 
@@ -663,7 +693,12 @@ function FilterBottomSheet({
 
         {/* Sheet */}
         <Animated.View style={[styles.sheetContainer, sheetAnimatedStyle]}>
-          <View style={styles.sheetIndicator} />
+          <View
+            style={styles.dragHandleContainer}
+            {...panResponder.panHandlers}
+          >
+            <View style={styles.sheetIndicator} />
+          </View>
 
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>Filter Transaksi</Text>
@@ -920,12 +955,21 @@ export default function HistoryScreen() {
       await deleteTransaction(token, itemToDelete.rowIndex);
       setDeleteModalVisible(false);
       setItemToDelete(null);
+      showToast({
+        type: "success",
+        title: "Transaksi Dihapus",
+        message: "Transaksi berhasil dihapus dari catatan.",
+      });
       // Tunggu modal tertutup lalu refresh data
       setTimeout(() => {
         fetchTransactions(token);
       }, 300);
     } catch {
-      Alert.alert("Error", "Gagal menghapus transaksi.");
+      showToast({
+        type: "error",
+        title: "Gagal Menghapus",
+        message: "Gagal menghapus transaksi. Silakan coba lagi.",
+      });
     } finally {
       setIsDeleting(false);
     }
@@ -1056,7 +1100,7 @@ export default function HistoryScreen() {
                   {item.keterangan}
                 </Text>
                 <View style={styles.rowTags}>
-                  <Text style={styles.itemCategory}>
+                  <Text style={styles.itemCategory} numberOfLines={1}>
                     {cleanCategory(item.kategori)}
                   </Text>
                   <Text style={styles.dot}>•</Text>
@@ -1583,6 +1627,7 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_400Regular",
     fontSize: 11,
     color: COLORS.subtext,
+    flexShrink: 1,
   },
   dot: {
     fontSize: 11,
@@ -1763,7 +1808,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     paddingHorizontal: 24,
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 34,
     maxHeight: "85%",
     shadowColor: "#000",
@@ -1771,6 +1816,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 15,
     elevation: 20,
+  },
+  dragHandleContainer: {
+    width: "100%",
+    alignItems: "center",
+    paddingTop: 8,
+    paddingBottom: 6,
+    ...(Platform.OS === "web" ? ({ cursor: "grab" } as any) : {}),
   },
   sheetHeader: {
     flexDirection: "row",

@@ -1,7 +1,16 @@
 import { create } from 'zustand';
 import { Platform } from 'react-native';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import * as SecureStore from '../utils/secureStore';
+
+// Safely require GoogleSignin for native platforms only
+let GoogleSignin: any = null;
+if (Platform.OS !== "web") {
+  try {
+    GoogleSignin = require("@react-native-google-signin/google-signin").GoogleSignin;
+  } catch (error) {
+    console.log("[SiPaling Hemat] Native Google Sign-In module not found in auth store.");
+  }
+}
 
 const SECURE_STORE_KEY = 'fintrack_access_token';
 const USER_INFO_KEY = 'fintrack_user_info';
@@ -115,8 +124,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   refreshToken: async () => {
     try {
-      if (Platform.OS === 'web') return null;
+      if (Platform.OS === 'web' || !GoogleSignin) return null;
       
+      GoogleSignin.configure({
+        webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB,
+        scopes: [
+          "https://www.googleapis.com/auth/spreadsheets",
+          "https://www.googleapis.com/auth/drive.file",
+        ],
+      });
+
       // Attempt silent sign in to refresh token natively
       await GoogleSignin.signInSilently();
       const tokens = await GoogleSignin.getTokens();

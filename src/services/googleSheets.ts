@@ -105,8 +105,8 @@ export async function initializeHeaders(token: string, spreadsheetId: string): P
         ['Tanggal', 'Kategori', 'Keterangan / Item', 'Nominal', 'Pembayaran', 'Catatan', 'Sumber Input'],
         ['', '', 'Total Budget Cash', 0, '', 'Jangan diubah (Budget Bulanan Cash)', ''],
         ['', '', 'Total Budget Paylater', 0, '', 'Jangan diubah (Budget Bulanan Paylater)', ''],
-        ['', '', 'Sisa Saldo Cash', '=D2-SUMIF(E8:E;"Cash";D8:D)', '', 'Rumus Otomatis (Sisa Saldo Cash = Total Budget Cash - Pengeluaran Cash)', ''],
-        ['', '', 'Sisa Saldo Paylater', '=D3-SUMIF(E8:E;"Paylater";D8:D)', '', 'Rumus Otomatis (Sisa Saldo Paylater = Total Budget Paylater - Pengeluaran Paylater)', ''],
+        ['', '', 'Sisa Saldo Cash', '=D2-SUMIF(E8:E;"Cash";D8:D)+2*(SUMIFS(D8:D;E8:E;"Cash";B8:B;"*Pemasukan*")+SUMIFS(D8:D;E8:E;"Cash";B8:B;"Gaji")+SUMIFS(D8:D;E8:E;"Cash";B8:B;"Investasi")+SUMIFS(D8:D;E8:E;"Cash";B8:B;"Sampingan")+SUMIFS(D8:D;E8:E;"Cash";B8:B;"Hadiah"))', '', 'Rumus Otomatis (Sisa Saldo Cash = Budget Cash - Pengeluaran + Pemasukan)', ''],
+        ['', '', 'Sisa Saldo Paylater', '=D3-SUMIF(E8:E;"Paylater";D8:D)+2*(SUMIFS(D8:D;E8:E;"Paylater";B8:B;"*Pemasukan*")+SUMIFS(D8:D;E8:E;"Paylater";B8:B;"Gaji")+SUMIFS(D8:D;E8:E;"Paylater";B8:B;"Investasi")+SUMIFS(D8:D;E8:E;"Paylater";B8:B;"Sampingan")+SUMIFS(D8:D;E8:E;"Paylater";B8:B;"Hadiah"))', '', 'Rumus Otomatis (Sisa Saldo Paylater = Budget Paylater - Pengeluaran + Pemasukan)', ''],
         ['', '', 'Total Sisa Saldo', '=D4+D5', '', 'Rumus Otomatis (Total Sisa Saldo = Sisa Saldo Cash + Sisa Saldo Paylater)', ''],
         ['', '', '', '', '', '', '']
       ],
@@ -385,3 +385,43 @@ export async function clearAllTransactions(
     throw error;
   }
 }
+
+/**
+ * Updates cells D4:D5 with the new income-aware formulas for existing spreadsheets.
+ * Only updates cells D4 and D5 (header metadata), without affecting row 8+ transaction rows.
+ */
+export async function updateFormulasForIncome(
+  token: string,
+  spreadsheetId: string
+): Promise<void> {
+  try {
+    const range = 'Transaksi!D4:D5';
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+
+    const cashFormula = '=D2-SUMIF(E8:E;"Cash";D8:D)+2*(SUMIFS(D8:D;E8:E;"Cash";B8:B;"*Pemasukan*")+SUMIFS(D8:D;E8:E;"Cash";B8:B;"Gaji")+SUMIFS(D8:D;E8:E;"Cash";B8:B;"Investasi")+SUMIFS(D8:D;E8:E;"Cash";B8:B;"Sampingan")+SUMIFS(D8:D;E8:E;"Cash";B8:B;"Hadiah"))';
+    const paylaterFormula = '=D3-SUMIF(E8:E;"Paylater";D8:D)+2*(SUMIFS(D8:D;E8:E;"Paylater";B8:B;"*Pemasukan*")+SUMIFS(D8:D;E8:E;"Paylater";B8:B;"Gaji")+SUMIFS(D8:D;E8:E;"Paylater";B8:B;"Investasi")+SUMIFS(D8:D;E8:E;"Paylater";B8:B;"Sampingan")+SUMIFS(D8:D;E8:E;"Paylater";B8:B;"Hadiah"))';
+
+    const body = {
+      values: [
+        [cashFormula],
+        [paylaterFormula],
+      ],
+    };
+
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      console.warn('Failed to update income formulas:', await response.text());
+    }
+  } catch (error) {
+    console.warn('Error in updateFormulasForIncome:', error);
+  }
+}
+

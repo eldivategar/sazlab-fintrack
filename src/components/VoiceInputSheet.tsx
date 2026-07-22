@@ -1,43 +1,44 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  StyleSheet,
-  View,
-  TouchableOpacity,
   ActivityIndicator,
   Dimensions,
+  PanResponder,
   Platform,
+  Pressable,
   ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { Portal, Modal, Text, Button, TextInput } from "react-native-paper";
+import { Button, Portal, Text, TextInput } from "react-native-paper";
 
-import { MotiView, MotiText } from "moti";
+import { MotiView } from "moti";
 
+import { Ionicons } from "@expo/vector-icons";
 import {
-  useAudioRecorder,
   AudioModule,
   RecordingPresets,
   setAudioModeAsync,
+  useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
 import Animated, {
-  useSharedValue,
+  cancelAnimation,
+  runOnJS,
   useAnimatedStyle,
+  useSharedValue,
   withRepeat,
-  withTiming,
   withSequence,
   withSpring,
-  cancelAnimation,
+  withTiming,
 } from "react-native-reanimated";
-import { Ionicons } from "@expo/vector-icons";
+import {
+  ParsedTransactionResponse,
+  parseTransactionWithAI,
+} from "../services/aiParser";
+import { SpeechApiError, transcribeAudio } from "../services/speechToText";
 import { useAuthStore } from "../stores/useAuthStore";
 import { useSheetStore } from "../stores/useSheetStore";
-import { transcribeAudio, SpeechApiError } from "../services/speechToText";
-import {
-  parseTransactionWithSumopod,
-  SumopodAiError,
-  ParsedTransaction,
-  ParsedTransactionResponse,
-} from "../services/aiParser";
 
 export interface EditableTransaction {
   id: string;
@@ -154,6 +155,10 @@ export default function VoiceInputSheet({
   const { token } = useAuthStore();
   const { addTransaction } = useSheetStore();
 
+  const [shouldRender, setShouldRender] = useState(visible);
+  const animatedValue = useSharedValue(0);
+  const dragY = useSharedValue(0);
+
   const [status, setStatus] = useState<
     "idle" | "recording" | "transcribing" | "parsing" | "preview" | "error"
   >("idle");
@@ -248,10 +253,63 @@ export default function VoiceInputSheet({
     opacity: pulseOpacity2.value,
   }));
 
-  const handleCancel = () => {
+  const screenHeight = Dimensions.get("window").height;
+
+  const handleCancel = useCallback(() => {
     resetAll();
     onDismiss();
-  };
+  }, [onDismiss]);
+
+  useEffect(() => {
+    if (visible) {
+      setShouldRender(true);
+      dragY.value = 0;
+      animatedValue.value = withSpring(1, {
+        damping: 20,
+        stiffness: 180,
+        mass: 0.8,
+      });
+    } else {
+      animatedValue.value = withTiming(0, { duration: 220 }, (finished) => {
+        if (finished) {
+          runOnJS(setShouldRender)(false);
+        }
+      });
+    }
+  }, [visible]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4,
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          dragY.value = gestureState.dy;
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 100 || gestureState.vy > 0.5) {
+          dragY.value = withTiming(screenHeight, { duration: 180 }, () => {
+            runOnJS(handleCancel)();
+          });
+        } else {
+          dragY.value = withSpring(0, { damping: 15 });
+        }
+      },
+    })
+  ).current;
+
+  const backdropAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: animatedValue.value,
+  }));
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { translateY: (1 - animatedValue.value) * screenHeight + dragY.value },
+      ],
+    };
+  });
 
   // ─── Helper: terima volume dari audio source ──────────────────────────────────
   const updateVolume = useCallback(
@@ -600,14 +658,7 @@ export default function VoiceInputSheet({
       setStatus("transcribing");
 
       const groqApiKey = process.env.EXPO_PUBLIC_GROQ_API_KEY;
-      const sumopodApiKey = process.env.EXPO_PUBLIC_SUMOPOD_AI_API_KEY;
-
-      if (
-        !groqApiKey ||
-        groqApiKey.startsWith("placeholder") ||
-        !sumopodApiKey ||
-        sumopodApiKey.startsWith("placeholder")
-      ) {
+      if (!groqApiKey || groqApiKey.startsWith("placeholder")) {
         throw new Error("MISSING_API_KEY");
       }
 
@@ -615,10 +666,7 @@ export default function VoiceInputSheet({
       setTranscription(textResult);
 
       setStatus("parsing");
-      const parsed = await parseTransactionWithSumopod(
-        textResult,
-        sumopodApiKey,
-      );
+      const parsed = await parseTransactionWithAI(textResult, groqApiKey);
 
       // Validasi data hasil parsing AI
       if (
@@ -688,8 +736,7 @@ export default function VoiceInputSheet({
           friendlyMessage =
             'Gagal menganalisis data transaksi. Harap ulangi rekaman dengan kalimat yang lebih jelas (contoh: "Bayar bakso 15 ribu tunai").';
         } else if (
-          errorMessage.includes("Groq Audio Transcription API failed") ||
-          errorMessage.includes("SumoPod AI API failed")
+          errorMessage.includes("Groq Audio Transcription API failed")
         ) {
           friendlyMessage =
             "Gagal menghubungi server AI untuk memproses suara/teks. Harap periksa koneksi internet, kunci API Anda, atau coba lagi beberapa saat lagi.";
@@ -848,20 +895,32 @@ export default function VoiceInputSheet({
 
   // categories and handlers removed since they are handled per transaction in updateTransaction
 
+  if (!shouldRender) return null;
+
   return (
     <Portal>
-      <Modal
-        visible={visible}
-        onDismiss={isRecording ? undefined : onDismiss} // Prevent accidental close while recording
-        contentContainerStyle={styles.modal}
-      >
-        <View style={styles.sheetContainer}>
+      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        {/* Backdrop */}
+        <Animated.View style={[styles.backdrop, backdropAnimatedStyle]}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={isRecording ? undefined : handleCancel}
+          />
+        </Animated.View>
+
+        {/* Sheet Container */}
+        <Animated.View style={[styles.sheetContainer, sheetAnimatedStyle]}>
+          {/* Drag Handle Container with PanResponder */}
+          <View
+            style={styles.dragHandleContainer}
+            {...panResponder.panHandlers}
+          >
+            <View style={styles.sheetIndicator} />
+          </View>
+
           {/* 1. Voice Assistant Recording / Listening State */}
           {(status === "idle" || status === "recording") && (
             <View style={styles.assistantContainer}>
-              {/* Drag Handle */}
-              <View style={styles.sheetIndicator} />
-
               {/* Title & Hint */}
               <Text style={styles.assistantStatus}>
                 Ceritakan transaksi Anda
@@ -1315,26 +1374,33 @@ export default function VoiceInputSheet({
               </Button>
             </View>
           )}
-        </View>
-      </Modal>
+        </Animated.View>
+      </View>
     </Portal>
   );
 }
 
 const styles = StyleSheet.create({
-  modal: {
+  backdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  dragHandleContainer: {
+    width: "100%",
+    alignItems: "center",
+    paddingTop: 10,
+    paddingBottom: 6,
+    ...(Platform.OS === "web" ? ({ cursor: "grab" } as any) : {}),
+  },
+  sheetContainer: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    margin: 0,
-  },
-  sheetContainer: {
-    width: "100%",
-    backgroundColor: "#FFFFFF", // White background
+    backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-    paddingTop: 8,
+    paddingTop: 4,
     paddingBottom: Platform.OS === "ios" ? 44 : 28,
     maxHeight: Dimensions.get("window").height * 0.9,
     alignItems: "center",

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import '../global.css';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { 
   useFonts, 
@@ -7,6 +8,10 @@ import {
   Poppins_600SemiBold, 
   Poppins_700Bold 
 } from '@expo-google-fonts/poppins';
+import {
+  PlayfairDisplay_600SemiBold,
+  PlayfairDisplay_700Bold
+} from '@expo-google-fonts/playfair-display';
 import * as SplashScreen from 'expo-splash-screen';
 import { PaperProvider, MD3LightTheme } from 'react-native-paper';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -14,6 +19,7 @@ import { View, ActivityIndicator } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useUIStore } from '../stores/useUIStore';
 import VoiceInputSheet from '../components/VoiceInputSheet';
+import ToastNotification from '../components/ToastNotification';
 let Notifications: any = null;
 try {
   Notifications = require('expo-notifications');
@@ -38,6 +44,17 @@ if (Notifications) {
   }
 }
 
+// Custom Theme with Poppins Font Family
+const theme = {
+  ...MD3LightTheme,
+  fonts: {
+    ...MD3LightTheme.fonts,
+    regular: { fontFamily: 'Poppins_400Regular' },
+    medium: { fontFamily: 'Poppins_500Medium' },
+    bold: { fontFamily: 'Poppins_700Bold' },
+  },
+};
+
 // Keep splash screen visible while loading resources
 SplashScreen.preventAutoHideAsync();
 
@@ -47,6 +64,8 @@ export default function RootLayout() {
     Poppins_500Medium,
     Poppins_600SemiBold,
     Poppins_700Bold,
+    PlayfairDisplay_600SemiBold,
+    PlayfairDisplay_700Bold,
   });
 
   const { token, isLoading, initialize, isAuthenticated } = useAuthStore();
@@ -114,6 +133,7 @@ export default function RootLayout() {
           <Stack.Screen name="(app)" options={{ headerShown: false }} />
         </Stack>
         <VoiceInputSheet visible={isVoiceSheetVisible} onDismiss={() => setVoiceSheetVisible(false)} />
+        <ToastNotification />
       </PaperProvider>
     </GestureHandlerRootView>
   );

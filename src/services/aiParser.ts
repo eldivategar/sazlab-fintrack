@@ -10,29 +10,37 @@ export interface ParsedTransactionResponse {
   transactions: ParsedTransaction[];
 }
 
-export class SumopodAiError extends Error {
+export class AIParserError extends Error {
   status?: number;
   constructor(message: string, status?: number) {
     super(message);
-    this.name = "SumopodAiError";
+    this.name = "AIParserError";
     this.status = status;
   }
 }
 
 /**
- * Sends transaction natural language text to SumoPod AI API for structural parsing into JSON.
+ * Sends transaction natural language text to Groq API for structural parsing into JSON.
  * @param text The natural language string (e.g. 'beli bensin 50rb pakai cash')
- * @param apiKey SumoPod AI API Key
+ * @param apiKey Groq API Key
  */
-export async function parseTransactionWithSumopod(
+export async function parseTransactionWithAI(
   text: string,
   apiKey: string | undefined,
 ): Promise<ParsedTransactionResponse> {
-  if (!apiKey || apiKey.startsWith("placeholder") || apiKey.trim() === "") {
-    throw new SumopodAiError("MISSING_API_KEY");
+  const effectiveApiKey = apiKey || process.env.EXPO_PUBLIC_GROQ_API_KEY;
+
+  if (
+    !effectiveApiKey ||
+    effectiveApiKey.startsWith("placeholder") ||
+    effectiveApiKey.trim() === ""
+  ) {
+    throw new AIParserError("MISSING_API_KEY");
   }
 
-  const url = "https://ai.sumopod.com/v1/chat/completions";
+  const url =
+    process.env.EXPO_PUBLIC_GROQ_BASE_URL ||
+    "https://api.groq.com/openai/v1/chat/completions";
   const systemPrompt = `
 You are a financial transaction parser.
 The user may mention ONE OR MANY transactions.
@@ -77,11 +85,11 @@ Rules:
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${effectiveApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: process.env.EXPO_PUBLIC_GROQ_MODEL || "llama-3.1-8b-instant",
         messages: [
           {
             role: "system",
@@ -93,13 +101,14 @@ Rules:
           },
         ],
         temperature: 0,
+        response_format: { type: "json_object" },
       }),
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new SumopodAiError(
-        `SumoPod AI API failed: ${errText}`,
+      throw new AIParserError(
+        `Groq AI API failed: ${errText}`,
         response.status,
       );
     }
@@ -108,7 +117,7 @@ Rules:
     const content = data.choices?.[0]?.message?.content;
 
     if (!content) {
-      throw new SumopodAiError("SumoPod AI returned an empty response.");
+      throw new AIParserError("Groq returned an empty response.");
     }
 
     // Clean up code block markup if returned by the LLM
@@ -119,10 +128,12 @@ Rules:
         .replace(/\n```$/, "");
     }
 
-    const parsed = JSON.parse(cleanedContent.trim()) as ParsedTransactionResponse;
+    const parsed = JSON.parse(
+      cleanedContent.trim(),
+    ) as ParsedTransactionResponse;
 
     if (!parsed || !Array.isArray(parsed.transactions)) {
-      throw new SumopodAiError("JSON_PARSE_FAILED");
+      throw new AIParserError("JSON_PARSE_FAILED");
     }
 
     // Normalize category to Indonesian translation if the AI returned English names
@@ -153,7 +164,7 @@ Rules:
 
     return parsed;
   } catch (error) {
-    console.warn("Error parsing with SumoPod AI:", error);
+    console.warn("Error parsing with Groq:", error);
     throw error;
   }
 }

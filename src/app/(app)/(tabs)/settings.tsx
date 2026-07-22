@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -8,8 +8,10 @@ import {
   Linking,
   Clipboard,
   Alert,
+  Platform,
   Image,
   useWindowDimensions,
+  PanResponder,
 } from "react-native";
 import {
   Text,
@@ -26,6 +28,7 @@ import {
 import { useAuthStore } from "../../../stores/useAuthStore";
 import { useSheetStore } from "../../../stores/useSheetStore";
 import { useSettingsStore } from "../../../stores/useSettingsStore";
+import { showToast } from "../../../stores/useUIStore";
 import { StatusBar } from "expo-status-bar";
 import { useSegments } from "expo-router";
 import ScreenTransition from "../../../components/ScreenTransition";
@@ -69,11 +72,14 @@ function BudgetBottomSheet({
   }, [visible, initialCash, initialPaylater]);
 
   const animatedValue = useSharedValue(0);
+  const dragY = useSharedValue(0);
   const [shouldRender, setShouldRender] = useState(visible);
+  const screenHeight = useWindowDimensions().height;
 
   useEffect(() => {
     if (visible) {
       setShouldRender(true);
+      dragY.value = 0;
       animatedValue.value = withSpring(1, {
         damping: 20,
         stiffness: 180,
@@ -87,6 +93,31 @@ function BudgetBottomSheet({
       });
     }
   }, [visible]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_: any, gestureState: any) => gestureState.dy > 4,
+      onPanResponderMove: (_: any, gestureState: any) => {
+        if (gestureState.dy > 0) {
+          dragY.value = gestureState.dy;
+        }
+      },
+      onPanResponderRelease: (_: any, gestureState: any) => {
+        if (gestureState.dy > 100 || gestureState.vy > 0.5) {
+          if (!isSaving) {
+            dragY.value = withTiming(screenHeight, { duration: 180 }, () => {
+              runOnJS(onDismiss)();
+            });
+          } else {
+            dragY.value = withSpring(0, { damping: 15 });
+          }
+        } else {
+          dragY.value = withSpring(0, { damping: 15 });
+        }
+      },
+    })
+  ).current;
 
   const handleSave = async () => {
     const cash = parseInt(cashInput, 10);
@@ -116,10 +147,11 @@ function BudgetBottomSheet({
     opacity: animatedValue.value,
   }));
 
-  const screenHeight = useWindowDimensions().height;
   const sheetAnimatedStyle = useAnimatedStyle(() => {
     return {
-      transform: [{ translateY: (1 - animatedValue.value) * screenHeight }],
+      transform: [
+        { translateY: (1 - animatedValue.value) * screenHeight + dragY.value },
+      ],
     };
   });
 
@@ -135,7 +167,9 @@ function BudgetBottomSheet({
 
         {/* Sheet */}
         <Animated.View style={[styles.sheetContainer, sheetAnimatedStyle]}>
-          <View style={styles.sheetIndicator} />
+          <View style={styles.dragHandleContainer} {...panResponder.panHandlers}>
+            <View style={styles.sheetIndicator} />
+          </View>
 
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>Atur Anggaran</Text>
@@ -293,9 +327,17 @@ export default function SettingsScreen() {
         await resetAllData(token);
       }
       setIsResetModalVisible(false);
-      Alert.alert("Sukses", "Seluruh data telah di-reset dan dimulai dari awal.");
+      showToast({
+        type: "success",
+        title: "Reset Berhasil",
+        message: "Seluruh data transaksi dan budget Anda telah berhasil di-reset!",
+      });
     } catch (err) {
-      Alert.alert("Error", "Gagal melakukan reset data.");
+      showToast({
+        type: "error",
+        title: "Gagal Reset Data",
+        message: "Gagal melakukan reset data. Silakan coba lagi.",
+      });
     } finally {
       setIsResettingData(false);
     }
@@ -582,10 +624,11 @@ export default function SettingsScreen() {
                   <Pressable
                     onPress={() => {
                       Clipboard.setString(spreadsheetId);
-                      Alert.alert(
-                        "ID Tersalin",
-                        "ID Spreadsheet telah disalin ke clipboard.",
-                      );
+                      showToast({
+                        type: "info",
+                        title: "ID Tersalin",
+                        message: "ID Spreadsheet telah disalin ke clipboard.",
+                      });
                     }}
                     style={({ pressed }) => [
                       styles.copyBtn,
@@ -1214,13 +1257,20 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     paddingHorizontal: 24,
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 34,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 15,
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
     elevation: 20,
+  },
+  dragHandleContainer: {
+    width: "100%",
+    alignItems: "center",
+    paddingTop: 8,
+    paddingBottom: 6,
+    ...(Platform.OS === "web" ? ({ cursor: "grab" } as any) : {}),
   },
   sheetIndicator: {
     width: 48,
