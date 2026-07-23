@@ -1,3 +1,5 @@
+export const DEFAULT_SPREADSHEET_TITLE = 'SiPaling Hemat Data';
+
 export class GoogleApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -14,7 +16,7 @@ export class GoogleApiError extends Error {
  */
 export async function searchSpreadsheet(token: string): Promise<string | null> {
   try {
-    const query = encodeURIComponent("name = 'SiPaling Hemat Data' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
+    const query = encodeURIComponent(`name = '${DEFAULT_SPREADSHEET_TITLE}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`);
     const url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)`;
 
     const response = await fetch(url, {
@@ -53,7 +55,7 @@ export async function createSpreadsheet(token: string): Promise<string> {
     const url = 'https://sheets.googleapis.com/v4/spreadsheets';
     const body = {
       properties: {
-        title: 'SiPaling Hemat Data',
+        title: DEFAULT_SPREADSHEET_TITLE,
       },
       sheets: [
         {

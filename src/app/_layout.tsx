@@ -20,6 +20,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useUIStore } from '../stores/useUIStore';
 import VoiceInputSheet from '../components/VoiceInputSheet';
 import ToastNotification from '../components/ToastNotification';
+import ErrorBoundary from '../components/ErrorBoundary';
 let Notifications: any = null;
 try {
   Notifications = require('expo-notifications');
@@ -124,17 +125,19 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <PaperProvider theme={theme}>
-        <Stack screenOptions={{ 
-          headerShown: false,
-          animation: 'slide_from_right',
-        }}>
-          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-          <Stack.Screen name="(app)" options={{ headerShown: false }} />
-        </Stack>
-        <VoiceInputSheet visible={isVoiceSheetVisible} onDismiss={() => setVoiceSheetVisible(false)} />
-        <ToastNotification />
-      </PaperProvider>
+      <ErrorBoundary>
+        <PaperProvider theme={theme}>
+          <Stack screenOptions={{ 
+            headerShown: false,
+            animation: 'slide_from_right',
+          }}>
+            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+            <Stack.Screen name="(app)" options={{ headerShown: false }} />
+          </Stack>
+          <VoiceInputSheet visible={isVoiceSheetVisible} onDismiss={() => setVoiceSheetVisible(false)} />
+          <ToastNotification />
+        </PaperProvider>
+      </ErrorBoundary>
     </GestureHandlerRootView>
   );
 }

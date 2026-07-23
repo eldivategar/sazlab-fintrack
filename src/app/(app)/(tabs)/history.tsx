@@ -25,7 +25,6 @@ import {
 } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
 import { useSegments, useRouter } from "expo-router";
-import { MotiView } from "moti";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,

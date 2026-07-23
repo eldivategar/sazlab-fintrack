@@ -10,7 +10,8 @@ import {
   updateBudgets,
   clearAllTransactions,
   updateFormulasForIncome,
-  GoogleApiError 
+  GoogleApiError,
+  DEFAULT_SPREADSHEET_TITLE
 } from '../services/googleSheets';
 import { useAuthStore } from './useAuthStore';
 
@@ -110,8 +111,8 @@ export const useSheetStore = create<SheetState>((set, get) => ({
       // 1. Get cached ID from SecureStore
       const cachedId = await SecureStore.getItemAsync(SHEET_ID_KEY);
       
-      // 2. Search for spreadsheets named 'SiPaling Hemat Data'
-      const query = encodeURIComponent("name = 'SiPaling Hemat Data' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
+      // 2. Search for spreadsheets named DEFAULT_SPREADSHEET_TITLE
+      const query = encodeURIComponent(`name = '${DEFAULT_SPREADSHEET_TITLE}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`);
       const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)`;
       
       const searchRes = await fetch(searchUrl, {

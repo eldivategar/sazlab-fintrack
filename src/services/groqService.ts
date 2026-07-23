@@ -26,7 +26,12 @@ export function streamGroqChat({
   const apiKey = process.env.EXPO_PUBLIC_GROQ_API_KEY;
 
   if (!apiKey || apiKey.trim() === "") {
-    onError(new Error("API Key Groq (EXPO_PUBLIC_GROQ_API_KEY) tidak ditemukan di .env"));
+    onError(new Error("API Key Groq (EXPO_PUBLIC_GROQ_API_KEY) belum dikonfigurasi di .env"));
+    return () => {};
+  }
+
+  if (!messages || messages.length === 0) {
+    onError(new Error("Pesan masukan tidak boleh kosong"));
     return () => {};
   }
 
@@ -83,10 +88,16 @@ export function streamGroqChat({
         onComplete(fullAccumulatedText);
       } else if (!isAborted) {
         let errMessage = `Groq API Error (Status ${xhr.status})`;
-        try {
-          const errObj = JSON.parse(xhr.responseText);
-          if (errObj.error?.message) errMessage = errObj.error.message;
-        } catch (_) {}
+        if (xhr.status === 429) {
+          errMessage = "Batas penggunaan API AI tercapai. Silakan coba beberapa saat lagi.";
+        } else if (xhr.status === 401) {
+          errMessage = "API Key Groq tidak valid atau telah kedaluwarsa.";
+        } else {
+          try {
+            const errObj = JSON.parse(xhr.responseText);
+            if (errObj.error?.message) errMessage = errObj.error.message;
+          } catch (_) {}
+        }
         onError(new Error(errMessage));
       }
     }
@@ -94,7 +105,7 @@ export function streamGroqChat({
 
   xhr.onerror = () => {
     if (!isAborted) {
-      onError(new Error("Gagal terhubung ke server Groq API"));
+      onError(new Error("Gagal terhubung ke server Groq API. Periksa koneksi internet Anda."));
     }
   };
 
