@@ -162,3 +162,6 @@ Ingin menambahkan fitur atau memperbaiki bug? Kami sangat menyambut kontribusi A
 ### 📄 Lisensi
 
 Proyek ini dilindungi di bawah lisensi [MIT](LICENSE).
+
+---
+🤖 *Maintained & Built with Gemini AI Agent*
