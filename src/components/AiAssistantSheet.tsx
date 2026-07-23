@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
-  KeyboardAvoidingView,
+  Keyboard,
   PanResponder,
   Platform,
   Pressable,
@@ -236,6 +236,38 @@ export default function AiAssistantSheet({
     }
   }, [visible]);
 
+  const keyboardHeight = useSharedValue(0);
+
+  // Auto-scroll & animate input above keyboard on popup
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      keyboardHeight.value = withTiming(e.endCoordinates?.height || 0, {
+        duration: 180,
+      });
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 60);
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      keyboardHeight.value = withTiming(0, { duration: 180 });
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const keyboardAnimatedStyle = useAnimatedStyle(() => ({
+    paddingBottom: keyboardHeight.value,
+  }));
+
   const screenHeight = Dimensions.get("window").height;
 
   const panResponder = useRef(
@@ -457,56 +489,54 @@ export default function AiAssistantSheet({
         </Animated.View>
 
         {/* Sheet */}
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="box-none"
-        >
-          <Animated.View style={[styles.sheetContainer, sheetAnimatedStyle]}>
-            <View
-              style={styles.dragHandleContainer}
-              {...panResponder.panHandlers}
-            >
-              <View style={styles.sheetIndicator} />
+        <Animated.View style={[styles.sheetContainer, sheetAnimatedStyle]}>
+          <View
+            style={styles.dragHandleContainer}
+            {...panResponder.panHandlers}
+          >
+            <View style={styles.sheetIndicator} />
+          </View>
+
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerTitleRow}>
+              <View style={styles.headerBadgeIcon}>
+                <Ionicons name="sparkles" size={14} color={COLORS.white} />
+              </View>
+              <View>
+                <Text style={styles.headerTitleText}>SiPaling Eay</Text>
+                <Text style={styles.headerSubtitleText}>
+                  AI Assistant Keuangan
+                </Text>
+              </View>
             </View>
 
-            {/* Header */}
-            <View style={styles.header}>
-              <View style={styles.headerTitleRow}>
-                <View style={styles.headerBadgeIcon}>
-                  <Ionicons name="sparkles" size={14} color={COLORS.white} />
-                </View>
-                <View>
-                  <Text style={styles.headerTitleText}>SiPaling Eay</Text>
-                  <Text style={styles.headerSubtitleText}>
-                    AI Assistant Keuangan
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.headerActions}>
-                {messages.length > 0 && (
-                  <Pressable
-                    onPress={handleResetChat}
-                    style={styles.iconButton}
-                    hitSlop={8}
-                  >
-                    <Ionicons
-                      name="refresh-outline"
-                      size={20}
-                      color={COLORS.subtext}
-                    />
-                  </Pressable>
-                )}
+            <View style={styles.headerActions}>
+              {messages.length > 0 && (
                 <Pressable
-                  onPress={onDismiss}
+                  onPress={handleResetChat}
                   style={styles.iconButton}
                   hitSlop={8}
                 >
-                  <Ionicons name="close" size={20} color={COLORS.subtext} />
+                  <Ionicons
+                    name="refresh-outline"
+                    size={20}
+                    color={COLORS.subtext}
+                  />
                 </Pressable>
-              </View>
+              )}
+              <Pressable
+                onPress={onDismiss}
+                style={styles.iconButton}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={20} color={COLORS.subtext} />
+              </Pressable>
             </View>
+          </View>
+
+          {/* ponytail: Animated paddingBottom driven by Keyboard height listener for absolute bottom sheet */}
+          <Animated.View style={[styles.keyboardAvoidingInner, keyboardAnimatedStyle]}>
 
             {/* Content Body */}
             <ScrollView
@@ -772,20 +802,15 @@ export default function AiAssistantSheet({
                 </Pressable>
               </View>
 
-              {/* Gen Z Trendy Security Privacy Note */}
+              {/* Gen Z Responsive Security Privacy Note */}
               <View style={styles.securityRow}>
-                <Ionicons
-                  name="lock-closed-outline"
-                  size={12}
-                  color="#94A3B8"
-                />
-                <Text style={styles.securityText}>
-                  Safe space buat curhat dompet. 100% rahasia, no cap! ✨
+                <Text style={styles.securityText} numberOfLines={1}>
+                  Safe space untuk curhat tentang dompet · 100% rahasia ✨
                 </Text>
               </View>
             </View>
           </Animated.View>
-        </KeyboardAvoidingView>
+        </Animated.View>
       </View>
     </Portal>
   );
@@ -1170,16 +1195,21 @@ const styles = StyleSheet.create({
   sendButtonActive: {
     backgroundColor: COLORS.primary,
   },
+  keyboardAvoidingInner: {
+    flex: 1,
+    width: "100%",
+  },
   securityRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 4,
     marginTop: 8,
+    paddingHorizontal: 8,
   },
   securityText: {
     fontFamily: "Poppins_400Regular",
-    fontSize: 11.5,
+    fontSize: 10.5,
     color: "#94A3B8",
     textAlign: "center",
   },

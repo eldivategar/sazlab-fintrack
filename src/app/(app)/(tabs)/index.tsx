@@ -675,7 +675,7 @@ export default function DashboardScreen() {
                 >
                   <Ionicons name="mic" size={24} color="#8ACCD5" />
                 </View>
-                <Text style={styles.actionTitle}>Input Suara AI</Text>
+                <Text style={styles.actionTitle}>Catatin</Text>
               </Pressable>
             </View>
           </AnimatedCard>
